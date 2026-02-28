@@ -24,6 +24,7 @@ generated_images/
 
 # Data
 data/
+cmb_data/
 cifar-10-batches-py/
 *.pkl
 
