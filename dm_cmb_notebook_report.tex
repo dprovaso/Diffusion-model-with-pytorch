@@ -1,0 +1,1064 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,bm,mathtools}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{array}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\Var}{\mathrm{Var}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\T}{\mathrm{T}}
+\newcommand{\e}{\varepsilon}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\uvec}{\bm{u}}
+\newcommand{\xvec}{\bm{x}}
+\newcommand{\zvec}{\bm{z}}
+\newcommand{\thetavec}{\bm{\theta}}
+\newcommand{\grad}{\nabla}
+
+\title{Mathematical Description of the \texttt{dm\_cmb.ipynb} Notebook}
+\author{Notebook summary for Overleaf}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\bigskip
+
+\section{Goal and Scope}
+
+The notebook \texttt{dm\_cmb.ipynb} is an experimental pipeline for learning generative priors for CMB-related sky components from simulated data, with an emphasis on the true CMB signal in $(T,Q,U)$ patches at \(143\ \mathrm{GHz}\). The long-term scientific goal is posterior sampling for component separation, i.e.
+\begin{equation}
+  p(x,f \mid y) \propto p(y \mid x,f)\,p(x)\,p(f),
+\end{equation}
+where
+\begin{itemize}[leftmargin=1.5em]
+  \item \(y\) is the observed sky map,
+  \item \(x\) is the foreground contribution,
+  \item \(f\) is the true CMB signal.
+\end{itemize}
+
+At the current stage, the notebook does \emph{not} yet train the full posterior sampler. Instead, it focuses on learning the prior \(p(f)\) (and the infrastructure for \(p(x)\)) from simulated data, then validating the learned prior through map-space diagnostics and flat-sky power spectra \(TT,EE,BB,TE\).
+
+The document below describes:
+\begin{enumerate}[leftmargin=1.5em]
+  \item the observed and simulated data preparation,
+  \item the probability-path formulation,
+  \item the ODE/SDE samplers,
+  \item the U-Net architecture,
+  \item the successive training objectives,
+  \item the spectral diagnostics,
+  \item the fixes, biases, and improvements introduced during debugging.
+\end{enumerate}
+
+\section{Harmonic Background: Why \(TT,EE,BB,TE\) Matter}
+
+\subsection{Full-sky decomposition of temperature and polarization}
+
+The CMB temperature anisotropy is a scalar field on the sphere,
+\begin{equation}
+  T(\hat n) = \sum_{\ell=0}^\infty \sum_{m=-\ell}^{\ell} a_{\ell m}^T\,Y_{\ell m}(\hat n).
+\end{equation}
+
+Linear polarization is not a scalar. Instead, the combinations
+\begin{equation}
+  (Q \pm iU)(\hat n)
+\end{equation}
+transform as spin-\(\pm 2\) fields, so they are expanded in spin-weighted spherical harmonics:
+\begin{equation}
+  (Q \pm iU)(\hat n)
+  =
+  \sum_{\ell m}
+  a_{\ell m}^{\pm 2}\,{}_{\pm 2}Y_{\ell m}(\hat n).
+\end{equation}
+
+The scalar \(E\)- and pseudo-scalar \(B\)-mode coefficients are then defined by
+\begin{equation}
+  a_{\ell m}^E = -\frac12\left(a_{\ell m}^{2}+a_{\ell m}^{-2}\right),
+  \qquad
+  a_{\ell m}^B = \frac{i}{2}\left(a_{\ell m}^{2}-a_{\ell m}^{-2}\right).
+\end{equation}
+
+Equivalently, one may think of \(E\) as the curl-free part of polarization and \(B\) as the divergence-free part. In standard parity-conserving \(\Lambda\)CDM, the primary nonzero two-point spectra are
+\begin{equation}
+  C_\ell^{TT},\qquad C_\ell^{EE},\qquad C_\ell^{BB},\qquad C_\ell^{TE},
+\end{equation}
+while \(TB\) and \(EB\) vanish in the absence of parity-violating physics and numerical leakage.
+
+\subsection{Why the angular power spectra summarize the Gaussian CMB prior}
+
+For a statistically isotropic Gaussian CMB, the harmonic coefficients satisfy
+\begin{equation}
+  \EE\!\left[a_{\ell m}^X\,(a_{\ell' m'}^Y)^\ast\right]
+  =
+  C_\ell^{XY}\,\delta_{\ell\ell'}\delta_{mm'},
+  \qquad
+  X,Y\in\{T,E,B\}.
+\end{equation}
+Thus every \((\ell,m)\) mode is uncorrelated with every other \((\ell',m')\neq(\ell,m)\), and all statistical information is contained in the small \(3\times 3\) covariance matrix at each \(\ell\):
+\begin{equation}
+  \Sigma_\ell
+  =
+  \begin{pmatrix}
+    C_\ell^{TT} & C_\ell^{TE} & 0\\
+    C_\ell^{TE} & C_\ell^{EE} & 0\\
+    0 & 0 & C_\ell^{BB}
+  \end{pmatrix}.
+\end{equation}
+
+This is why the notebook evaluates generated samples through \(TT,EE,BB,TE\): if the prior is intended to model Gaussian CMB structure faithfully, then matching these spectra is the most direct second-order validation test.
+
+\subsection{From \(C_\ell\) to the plotted quantity \(D_\ell\)}
+
+The notebook often plots
+\begin{equation}
+  D_\ell^{XY} = \frac{\ell(\ell+1)}{2\pi} C_\ell^{XY}.
+\end{equation}
+This is only a rescaled version of the same information, but it is often visually more informative because for nearly scale-invariant spectra the factor \(\ell(\ell+1)\) roughly removes the leading \(\ell^{-2}\) behavior of \(C_\ell\) and makes acoustic peaks easier to see.
+
+In particular:
+\begin{itemize}[leftmargin=1.5em]
+  \item \(D_\ell^{TT}\) measures temperature variance per logarithmic \(\ell\)-interval,
+  \item \(D_\ell^{EE}\) and \(D_\ell^{BB}\) do the same for polarization parity-even and parity-odd structure,
+  \item \(D_\ell^{TE}\) measures temperature--polarization correlation and can change sign.
+\end{itemize}
+
+\subsection{Why a flat-sky approximation is reasonable for the patch diagnostics}
+
+The training objects are \(64\times 64\) tangent-plane patches at \(6.7'\) per pixel, so each patch spans only a few degrees. On such small areas, the sphere is well approximated by a plane and spherical harmonics are locally approximated by Fourier modes:
+\begin{equation}
+  Y_{\ell m}(\hat n)\quad \longrightarrow \quad e^{i\bm{\ell}\cdot \bm{x}}.
+\end{equation}
+Therefore the notebook estimates spectra from 2D Fourier transforms of the patches rather than from full-sky harmonic transforms. The price is that these are \emph{flat-sky} spectral diagnostics, but the gain is that they are directly matched to the patch-based training domain.
+
+\section{Observed Data and Why It Is Prepared}
+
+\subsection{Planck half-ring maps}
+
+The notebook imports two Planck PR4/NPIPE half-ring maps at \(143\ \mathrm{GHz}\), denoted here by
+\begin{equation}
+  h_1,\quad h_2 \in \RR^{3 \times N_{\mathrm{pix}}},
+\end{equation}
+with channels \((T,Q,U)\), together with a sky mask.
+
+These maps are not used as direct training targets for the prior model. Instead, they serve two purposes:
+\begin{enumerate}[leftmargin=1.5em]
+  \item to define the observational object
+  \begin{equation}
+    y = \frac{h_1 + h_2}{2},
+  \end{equation}
+  which is the approximate observed sky map;
+  \item to define the half-ring difference proxy
+  \begin{equation}
+    d = \frac{h_1 - h_2}{2},
+  \end{equation}
+  which acts as a noise proxy / validation object for later likelihood-based work.
+\end{enumerate}
+
+\subsection{Planck preprocessing}
+
+Each half-ring map is preprocessed by \texttt{preprocess\_pr4\_hr\_to\_nside512}:
+\begin{enumerate}[leftmargin=1.5em]
+  \item read \((T,Q,U)\) and infer or set the input unit;
+  \item convert to \(\mu\mathrm{K}_{\mathrm{CMB}}\);
+  \item replace invalid / unseen pixels by zero;
+  \item smooth harmonically from an assumed input beam of \(5'\) FWHM to an output beam of \(10'\) FWHM;
+  \item downgrade to \(N_{\mathrm{side}}=512\);
+  \item use \(l_{\max}=3N_{\mathrm{side}}-1 = 1535\).
+\end{enumerate}
+
+In harmonic space, if \(a_{\ell m}\) denotes a scalar or spin component, the additional smoothing is
+\begin{equation}
+  a_{\ell m}^{\mathrm{out}} = b_\ell^{\mathrm{add}}\, a_{\ell m}^{\mathrm{in}},
+  \qquad
+  b_\ell^{\mathrm{add}} = \exp\!\left[-\frac12 \ell(\ell+1)\sigma_{\mathrm{add}}^2\right],
+\end{equation}
+with \(\sigma_{\mathrm{add}}\) chosen so that
+\begin{equation}
+  \mathrm{FWHM}_{\mathrm{out}}^2
+  =
+  \mathrm{FWHM}_{\mathrm{in}}^2
+  +
+  \mathrm{FWHM}_{\mathrm{add}}^2.
+\end{equation}
+
+After beam smoothing and pixelization, the effective observed harmonic coefficients are of the form
+\begin{equation}
+  \tilde a_{\ell m}^X = B_\ell^X P_\ell^X a_{\ell m}^X,
+\end{equation}
+where \(B_\ell\) is the instrumental or imposed Gaussian beam and \(P_\ell\) is the HEALPix pixel window. Working at a common output beam and common \(N_{\mathrm{side}}\) ensures that observed data, simulated priors, and later likelihood ingredients live in a harmonically compatible convention.
+
+\section{Simulated Priors and Why They Are Needed}
+
+\subsection{Foreground prior \(p(x)\) from PySM}
+
+The foreground prior is constructed from PySM 3 simulations at \(143\ \mathrm{GHz}\), using dust and synchrotron presets:
+\begin{equation}
+  \texttt{fg\_presets} = (\texttt{d1}, \texttt{s1}).
+\end{equation}
+
+For each foreground realization:
+\begin{enumerate}[leftmargin=1.5em]
+  \item generate a base full-sky \((T,Q,U)\) map;
+  \item convert to \(\mu\mathrm{K}_{\mathrm{CMB}}\);
+  \item optionally apply a random Euler rotation \((\alpha,\beta,\gamma)\) on the sphere;
+  \item smooth to the same \(10'\) beam convention as the CMB prior;
+  \item extract many local gnomonic patches.
+\end{enumerate}
+
+If the simulated foreground map is denoted \(x(\hat n)\), then the random rotation step conceptually applies an element \(R\in SO(3)\) to produce
+\begin{equation}
+  x_R(\hat n) = x(R^{-1}\hat n).
+\end{equation}
+In spherical-harmonic language, the corresponding scalar coefficients would transform as
+\begin{equation}
+  a_{\ell m}' = \sum_{m'=-\ell}^{\ell} D_{m m'}^\ell(R)\,a_{\ell m'},
+\end{equation}
+with \(D_{mm'}^\ell\) the Wigner \(D\)-matrices; for polarization, the same rotation acts on the underlying spin-2 field. The purpose is not to alter the physical foreground statistics, but to decorrelate the training set from one preferred sky orientation.
+
+The unit-conversion step can be summarized schematically as
+\begin{equation}
+  x_{\mu\mathrm{K}_{\mathrm{CMB}}}(\hat n,\nu)
+  =
+  g_{\nu}\,x_{\mathrm{native}}(\hat n,\nu),
+\end{equation}
+where \(g_\nu\) is the frequency-dependent conversion from the PySM native brightness convention to thermodynamic CMB temperature units. This is crucial because the subsequent training mixes temperature and polarization numerically and requires a common physical unit convention.
+
+The random rotation is used so that the network does not overfit specific sky orientations or large-scale alignments of a single foreground realization.
+
+\subsection{CMB prior \(p(f)\) from CAMB + Healpy}
+
+The true-CMB prior used for the current main training run is a Gaussian CMB prior generated from \(C_\ell\) spectra computed with CAMB.
+
+\subsubsection{CAMB spectra}
+
+The notebook constructs a standard Planck-like cosmology through \texttt{CAMBparams}, with default values close to
+\begin{equation}
+  H_0=67.5,\quad
+  \Omega_b h^2 = 0.022,\quad
+  \Omega_c h^2 = 0.122,\quad
+  \tau = 0.06,\quad
+  n_s=0.965,\quad
+  A_s = 2.1 \times 10^{-9},
+\end{equation}
+and then extracts the raw spectra
+\begin{equation}
+  C_\ell^{TT},\quad C_\ell^{EE},\quad C_\ell^{BB},\quad C_\ell^{TE}.
+\end{equation}
+
+The helper
+\begin{equation}
+  D_\ell = \frac{\ell(\ell+1)}{2\pi} C_\ell
+\end{equation}
+is used for plotting, but the map simulation is performed from \(C_\ell\), not \(D_\ell\).
+
+\subsubsection{Gaussian \(T,Q,U\) map simulation}
+
+The function \texttt{simulate\_cmb\_tqu\_from\_cls} generates Gaussian full-sky CMB maps by:
+\begin{enumerate}[leftmargin=1.5em]
+  \item setting the unphysical low multipoles \(\ell=0,1\) to zero;
+  \item drawing correlated Gaussian harmonic coefficients
+  \begin{equation}
+    (a_{\ell m}^T, a_{\ell m}^E, a_{\ell m}^B)
+  \end{equation}
+  with covariance implied by \(TT,EE,BB,TE\);
+  \item multiplying by a Gaussian beam \(B_\ell\) with \(10'\) FWHM;
+  \item multiplying by the HEALPix pixel window \(P_\ell\) (temperature and polarization separately);
+  \item transforming back to \((T,Q,U)\) on an \(N_{\mathrm{side}}=512\) grid.
+\end{enumerate}
+
+More explicitly, for each \(\ell\ge 2\) and each \(m\), the harmonic triplet is drawn from a zero-mean complex Gaussian law with covariance \(\Sigma_\ell\):
+\begin{equation}
+  \begin{pmatrix}
+    a_{\ell m}^T\\ a_{\ell m}^E\\ a_{\ell m}^B
+  \end{pmatrix}
+  \sim \mathcal{N}_{\mathbb{C}}(0,\Sigma_\ell),
+  \qquad
+  \Sigma_\ell
+  =
+  \begin{pmatrix}
+    C_\ell^{TT} & C_\ell^{TE} & 0\\
+    C_\ell^{TE} & C_\ell^{EE} & 0\\
+    0 & 0 & C_\ell^{BB}
+  \end{pmatrix},
+\end{equation}
+subject to the reality condition
+\begin{equation}
+  a_{\ell,-m}^X = (-1)^m (a_{\ell m}^X)^\ast.
+\end{equation}
+
+Once \(a_{\ell m}^T,a_{\ell m}^E,a_{\ell m}^B\) are generated, the beam and pixel window are applied:
+\begin{equation}
+  \bar a_{\ell m}^X = B_\ell^X P_\ell^X a_{\ell m}^X.
+\end{equation}
+The final \(Q,U\) maps are then synthesized from \(\bar a_{\ell m}^E,\bar a_{\ell m}^B\) using the spin-\(2\) inverse harmonic transform. This is why the simulated prior is Gaussian by construction but still has the correct \(TE\) correlation and the correct polarization mode content.
+
+This gives Gaussian CMB skies consistent with the chosen spectra and instrumental smoothing convention.
+
+\subsection{Why both priors exist}
+
+The notebook infrastructure builds both:
+\begin{itemize}[leftmargin=1.5em]
+  \item \(p(f)\): true CMB prior (\texttt{prior\_f}),
+  \item \(p(x)\): foreground prior (\texttt{prior\_x}).
+\end{itemize}
+
+However, the current active training run focuses on the true CMB prior only:
+\begin{equation}
+  \texttt{path.p\_data} = \texttt{PriorSampler(prior\_f, subset\_fraction=1)}.
+\end{equation}
+
+\section{Patch Extraction, Polarization Rotation, and Normalization}
+
+\subsection{Gnomonic patches}
+
+The prior maps are converted from full-sky HEALPix format to flat gnomonic patches:
+\begin{itemize}[leftmargin=1.5em]
+  \item patch size \(64 \times 64\),
+  \item pixel size \(6.7'\),
+  \item random centers chosen within the sky mask.
+\end{itemize}
+
+If a footprint mask is provided, the notebook can require every pixel in the projected patch to satisfy
+\begin{equation}
+  m(\hat n) \ge 0.9.
+\end{equation}
+
+Mathematically, if \((\theta_0,\phi_0)\) is the patch center and \((\xi,\eta)\) are local tangent-plane coordinates, the gnomonic projection maps nearby directions on the sphere to a plane tangent at \((\theta_0,\phi_0)\). One convenient forward form is
+\begin{align}
+  \xi &=
+  \frac{\cos\theta\,\sin(\phi-\phi_0)}
+       {\sin\theta_0\sin\theta+\cos\theta_0\cos\theta\cos(\phi-\phi_0)},\\
+  \eta &=
+  \frac{\cos\theta_0\sin\theta-\sin\theta_0\cos\theta\cos(\phi-\phi_0)}
+       {\sin\theta_0\sin\theta+\cos\theta_0\cos\theta\cos(\phi-\phi_0)}.
+\end{align}
+
+On sufficiently small patches, this projection is close to a Cartesian coordinate chart. That is exactly why local FFTs are appropriate for subsequent spectral diagnostics.
+
+\subsection{Polarization rotation}
+
+For \((Q,U)\), a local spin-2 basis rotation is applied when projecting to the gnomonic tangent plane. If \(\psi\) is the local basis rotation angle, then
+\begin{equation}
+  \begin{pmatrix}
+    Q'\\ U'
+  \end{pmatrix}
+  =
+  \begin{pmatrix}
+    \cos 2\psi & \sin 2\psi\\
+    -\sin 2\psi & \cos 2\psi
+  \end{pmatrix}
+  \begin{pmatrix}
+    Q\\ U
+  \end{pmatrix}.
+\end{equation}
+
+Equivalently, in complex notation,
+\begin{equation}
+  Q' \pm iU' = e^{\mp 2i\psi}(Q \pm iU).
+\end{equation}
+The factor of \(2\) is the defining signature of a spin-2 field. If this rotation were omitted, the projected polarization would not be expressed in a consistent local basis, and the inferred flat-sky \(E/B\) modes would be contaminated by a purely geometric mismatch.
+
+This is important because the native HEALPix polarization basis is not the same as the local Cartesian patch basis.
+
+\subsection{Dataset splitting and normalization}
+
+After patch extraction, each prior dataset is shuffled deterministically, split into train/validation sets, and normalized channel-wise using \emph{train-only} statistics:
+\begin{equation}
+  \mu_c = \frac{1}{N_{\mathrm{train}}HW}
+  \sum_{n,i,j} x_{n,c,i,j},
+  \qquad
+  \sigma_c = \sqrt{
+    \frac{1}{N_{\mathrm{train}}HW}
+    \sum_{n,i,j} (x_{n,c,i,j}-\mu_c)^2
+  }.
+\end{equation}
+The normalized patches are
+\begin{equation}
+  \tilde x_{n,c,i,j} = \frac{x_{n,c,i,j} - \mu_c}{\sigma_c}.
+\end{equation}
+
+The currently saved \texttt{.npz} priors contain, for both \(p(f)\) and \(p(x)\):
+\begin{equation}
+  29491\ \text{train patches}, \qquad 3277\ \text{validation patches},
+\end{equation}
+each of shape \(3\times 64\times 64\).
+
+The model is trained in this normalized patch domain.
+
+This normalization is itself a linear transformation of the prior. If \(S=\mathrm{diag}(\sigma_T,\sigma_Q,\sigma_U)\), then for each pixel vector \(m=(T,Q,U)^\T\),
+\begin{equation}
+  \tilde m = S^{-1}(m-\mu).
+\end{equation}
+Therefore the learned prior is mathematically the prior of the transformed field \(\tilde m\), not of the raw physical field \(m\). This is harmless for training stability and model comparison because both train and validation sets are transformed in the same way, but it does mean that the notebook's diagnostic spectra are spectra in the normalized domain unless the normalization is explicitly undone.
+
+For temperature alone, the effect is simple:
+\begin{equation}
+  \widetilde C_\ell^{TT} = \sigma_T^{-2} C_\ell^{TT}.
+\end{equation}
+For polarization it is slightly subtler because \(E\) and \(B\) are formed \emph{after} separately normalizing \(Q\) and \(U\). If \(\sigma_Q\neq \sigma_U\), then normalized-domain \(EE\) and \(BB\) are not just one-number rescalings of the physical spectra. The notebook's spectra therefore serve primarily as \emph{model-versus-reference diagnostics in the training domain}, not as direct substitutes for physical full-sky \(C_\ell\) values.
+
+\section{Probability Paths}
+
+\subsection{General Gaussian conditional path}
+
+The notebook defines a family of Gaussian conditional paths
+\begin{equation}
+  x_t = \alpha_t z + \beta_t \e,
+  \qquad
+  \e \sim \mathcal{N}(0,I),
+\end{equation}
+where \(z\) is a data sample and \(\alpha_t,\beta_t\) are scalar schedules.
+
+The corresponding conditional score is
+\begin{equation}
+  \grad_x \log p_t(x\mid z)
+  =
+  -\frac{x-\alpha_t z}{\beta_t^2},
+\end{equation}
+and the conditional vector field implemented in the notebook is
+\begin{equation}
+  u_t(x\mid z)
+  =
+  \left(\dot\alpha_t - \frac{\dot\beta_t}{\beta_t}\alpha_t \right)z
+  +
+  \frac{\dot\beta_t}{\beta_t} x.
+\end{equation}
+
+\subsection{Schedule options implemented}
+
+Three schedule families are present in the notebook.
+
+\paragraph{Linear schedule}
+\begin{equation}
+  \alpha_t = t,
+  \qquad
+  \beta_t = 1-t.
+\end{equation}
+This is the \emph{current active training path}.
+
+\paragraph{Exact trigonometric schedule}
+\begin{equation}
+  \alpha_t = \sin\!\left(\frac{\pi t}{2}\right),
+  \qquad
+  \beta_t = \cos\!\left(\frac{\pi t}{2}\right),
+  \qquad
+  \alpha_t^2+\beta_t^2=1.
+\end{equation}
+This was implemented and tested, but in practice it produced overly flat spectra in the current standardized-data regime, so it is not the active configuration.
+
+\paragraph{Bounded trigonometric schedule}
+This uses
+\begin{equation}
+  \alpha_t = \sin \theta(t),
+  \qquad
+  \beta_t = \cos \theta(t),
+\end{equation}
+with
+\begin{equation}
+  \theta(t)=\theta_{\min}+(\theta_{\max}-\theta_{\min})t,
+  \quad
+  \theta_{\min}=\arcsin(\alpha_{\min}),
+  \quad
+  \theta_{\max}=\arccos(\beta_{\min}),
+\end{equation}
+where historically \(\alpha_{\min}=\beta_{\min}=0.02\) or \(0.05\).
+This was introduced to avoid stiff endpoint behavior in the original score-based sampler.
+
+\section{ODE/SDE Samplers}
+
+\subsection{Original score-based parameterization}
+
+The original model predicted noise \(\hat\e_\theta(x_t,t)\) and defined an approximate score
+\begin{equation}
+  s_t(x) = -\frac{\hat\e_\theta(x,t)}{\beta_t}.
+\end{equation}
+
+The notebook implemented the score-to-drift conversion
+\begin{equation}
+  u_t(x)
+  =
+  \left(
+    \beta_t^2 \frac{\dot\alpha_t}{\alpha_t}
+    -
+    \dot\beta_t \beta_t
+  \right) s_t(x)
+  +
+  \frac{\dot\alpha_t}{\alpha_t}x,
+\end{equation}
+and then an SDE family
+\begin{equation}
+  \dd X_t
+  =
+  \left(
+    u_t(X_t) + \frac{\sigma^2}{2}s_t(X_t)
+  \right)\dd t
+  +
+  \sigma\,\dd W_t.
+\end{equation}
+
+For the linear schedule \(\alpha_t=t,\ \beta_t=1-t\), this drift becomes very stiff near \(t=0\), which caused severe instability and saturation in early experiments.
+
+\subsection{Current direct flow-matching sampler}
+
+The current model predicts the vector field directly, so the sampler is simply the deterministic ODE
+\begin{equation}
+  \frac{\dd X_t}{\dd t} = \hat v_\theta(X_t,t).
+\end{equation}
+
+The notebook wraps this as \texttt{VectorFieldODE} with zero diffusion. This is numerically integrated with:
+\begin{itemize}[leftmargin=1.5em]
+  \item Euler--Maruyama for \(\sigma>0\),
+  \item Heun's method for \(\sigma=0\) (current active choice).
+\end{itemize}
+
+\subsection{Heun integrator}
+
+For step size \(\Delta t\), the current deterministic sampler uses
+\begin{align}
+  k_1 &= \hat v_\theta(x_t,t),\\
+  x^\star &= x_t + \Delta t\, k_1,\\
+  k_2 &= \hat v_\theta(x^\star, t+\Delta t),\\
+  x_{t+\Delta t} &= x_t + \frac{\Delta t}{2}(k_1+k_2).
+\end{align}
+
+Historically the notebook also supported a state clamp
+\begin{equation}
+  x \leftarrow \mathrm{clip}(x, -x_{\max}, x_{\max}),
+\end{equation}
+with \(x_{\max}=5\), used mainly as a diagnostic guardrail after severe blow-up was observed in the original score-based sampler. The current active runs have essentially zero clipping fraction.
+
+\section{Reconstruction Maps}
+
+The sampler returns a terminal state \(x_t\), not directly a clean sample \(z\). Therefore the notebook reconstructs \(\hat z\).
+
+\subsection{From epsilon prediction}
+
+In the old noise-prediction parameterization,
+\begin{equation}
+  \hat z = \frac{x_t - \beta_t \hat\e_\theta(x_t,t)}{\alpha_t}.
+\end{equation}
+
+\subsection{From vector-field prediction}
+
+In the current flow-matching parameterization, the notebook reconstructs \(\hat z\) from the \(2\times 2\) linear system defined by
+\begin{equation}
+  x_t = \alpha_t z + \beta_t \e,
+  \qquad
+  v_t = \dot\alpha_t z + \dot\beta_t \e.
+\end{equation}
+Solving for \(z\) gives
+\begin{equation}
+  \hat z
+  =
+  \frac{\dot\beta_t\,x_t - \beta_t\,\hat v_\theta(x_t,t)}
+       {\alpha_t\dot\beta_t - \dot\alpha_t \beta_t}.
+\end{equation}
+
+For the linear path \(\alpha_t=t,\ \beta_t=1-t\), this simplifies to
+\begin{equation}
+  \hat z = x_t + (1-t)\hat v_\theta(x_t,t).
+\end{equation}
+
+\section{U-Net Architecture}
+
+The active network is \texttt{CMBUNet}, operating on \(3\times 64\times 64\) normalized patches.
+
+\subsection{Time embedding}
+
+Time is embedded by a learnable Fourier feature map:
+\begin{equation}
+  \phi(t)
+  =
+  \sqrt{2}
+  \begin{bmatrix}
+    \sin(2\pi t\,w_1), \dots, \sin(2\pi t\,w_{d/2}),\\
+    \cos(2\pi t\,w_1), \dots, \cos(2\pi t\,w_{d/2})
+  \end{bmatrix},
+\end{equation}
+with learnable frequencies \(w_i\).
+
+\subsection{Residual blocks}
+
+Each residual layer performs:
+\begin{equation}
+  h_1 = \mathrm{Conv}\bigl(\mathrm{GN}(\mathrm{SiLU}(x))\bigr),
+\end{equation}
+adds a time-conditioned bias from the embedding,
+\begin{equation}
+  h_2 = h_1 + A(\phi(t)),
+\end{equation}
+then applies another GN--SiLU--Conv block and adds the residual connection.
+
+\subsection{Encoder / decoder}
+
+The current architecture is:
+\begin{itemize}[leftmargin=1.5em]
+  \item channels: \([32, 64, 128, 256]\),
+  \item \(2\) residual layers per stage,
+  \item time embedding dimension \(64\),
+  \item downsampling by strided \(3\times 3\) convolutions,
+  \item upsampling by bilinear resize followed by \(3\times 3\) convolution.
+\end{itemize}
+
+The notebook stores encoder activations and adds them back in the decoder as skip connections.
+
+\section{Training Formulations and Why They Changed}
+
+\subsection{Stage 1: epsilon prediction}
+
+The original diffusion-style training objective was
+\begin{equation}
+  L_\e
+  =
+  \EE \left[
+    \left\|
+      \hat\e_\theta(x_t,t)-\e
+    \right\|^2
+  \right].
+\end{equation}
+
+This is mathematically natural for noise prediction, but in the current notebook it combined with the score-conversion sampler to produce unstable reverse dynamics, large clip fractions, and severely distorted spectra.
+
+\subsection{Stage 2: direct flow matching}
+
+The notebook was then rewritten to predict the vector field directly.
+
+For the linear path,
+\begin{equation}
+  x_t = t z + (1-t)\e,
+  \qquad
+  v^\star = z-\e.
+\end{equation}
+
+The base flow-matching loss is
+\begin{equation}
+  L_v
+  =
+  \EE \left[
+    \|\hat v_\theta(x_t,t)-v^\star\|^2
+  \right].
+\end{equation}
+
+This removed the stiff score conversion and fixed the main instability problem.
+
+\subsection{Stage 3: auxiliary clean-map reconstruction loss}
+
+The notebook then added a reconstruction term
+\begin{equation}
+  L_{x_0}
+  =
+  \EE \left[
+    \|\hat z - z\|^2
+  \right].
+\end{equation}
+
+For the linear path,
+\begin{equation}
+  \hat z - z = (1-t)(\hat v_\theta - v^\star),
+\end{equation}
+so \(L_{x_0}\) is a time-weighted version of vector-field error that emphasizes low \(t\), precisely where endpoint sample quality is most sensitive.
+
+The combined loss became
+\begin{equation}
+  L_{\mathrm{flow+recon}}
+  =
+  L_v + \lambda_{x_0}L_{x_0},
+\end{equation}
+with current active value
+\begin{equation}
+  \lambda_{x_0}=0.25.
+\end{equation}
+
+\subsection{Stage 4: low-frequency \(T\)-channel loss}
+
+When the TT peak location became roughly correct but the low/mid-\(\ell\) amplitude remained too small, the notebook added a low-frequency temperature loss. Let \(G_\sigma\) denote Gaussian blur with width \(\sigma\) pixels, and let \(\hat T,T\) be the \(T\)-channel slices of \(\hat z\) and \(z\). Then
+\begin{equation}
+  L_{\mathrm{lf},T}^{(\sigma)}
+  =
+  \EE\left[
+    \|G_\sigma * \hat T - G_\sigma * T\|^2
+  \right].
+\end{equation}
+The notebook averages this over
+\begin{equation}
+  \sigma \in \{2,4\}\ \text{pixels}.
+\end{equation}
+
+In Fourier space, Gaussian blur applies the weight
+\begin{equation}
+  \widehat{G_\sigma * T}(k)
+  =
+  e^{-\frac12 \sigma^2 |k|^2}\,\hat T(k),
+\end{equation}
+so this loss emphasizes low and mid spatial frequencies. It was added specifically because TT was too low at low/mid \(\ell\) even when the overall shape was becoming correct.
+
+The current active coefficient is
+\begin{equation}
+  \lambda_{\mathrm{lf},T} = 0.5.
+\end{equation}
+
+\subsection{Stage 5: smoothed variance matching loss}
+
+Later diagnostics showed that the raw generated spectra often looked like under-dispersed versions of the target spectra, while variance-matched diagnostic plots improved substantially. This suggested that the main remaining issue had become multiplicative under-variance.
+
+To target this directly, the notebook now adds a smoothed per-channel variance matching loss. Let
+\begin{equation}
+  \tilde z = G_{\sigma_{\mathrm{var}}} * z,
+  \qquad
+  \widetilde{\hat z} = G_{\sigma_{\mathrm{var}}} * \hat z,
+\end{equation}
+with
+\begin{equation}
+  \sigma_{\mathrm{var}} = 1.2\ \text{pixels},
+\end{equation}
+matching the same smoothing used in spectral evaluation.
+
+For each channel \(c\in\{T,Q,U\}\), compute variance across batch and spatial dimensions:
+\begin{equation}
+  v_c^{\mathrm{gen}} = \Var(\widetilde{\hat z}_c),
+  \qquad
+  v_c^{\mathrm{ref}} = \Var(\tilde z_c).
+\end{equation}
+
+The loss is
+\begin{equation}
+  L_{\mathrm{var}}
+  =
+  \frac13 \sum_c
+  \left(
+    \frac{v_c^{\mathrm{gen}}}{v_c^{\mathrm{ref}}+\epsilon} - 1
+  \right)^2.
+\end{equation}
+
+The current active coefficient is
+\begin{equation}
+  \lambda_{\mathrm{var}} = 1.0.
+\end{equation}
+
+\subsection{Current total loss}
+
+The current active training objective is therefore
+\begin{equation}
+  L_{\mathrm{total}}
+  =
+  L_v
+  + \lambda_{x_0}L_{x_0}
+  + \lambda_{\mathrm{lf},T}L_{\mathrm{lf},T}
+  + \lambda_{\mathrm{var}}L_{\mathrm{var}}.
+\end{equation}
+
+\section{Timestep Sampling Bias}
+
+The notebook does not sample training times uniformly in the raw variable \(u\). Instead it defines
+\begin{equation}
+  \tau =
+  \begin{cases}
+    u, & p = 1,\\
+    1-(1-u)^p, & p \neq 1,
+  \end{cases}
+  \qquad
+  u\sim \mathrm{Uniform}(0,1),
+\end{equation}
+and then
+\begin{equation}
+  t = t_{\min} + (t_{\max}-t_{\min})\tau.
+\end{equation}
+
+Interpretation:
+\begin{itemize}[leftmargin=1.5em]
+  \item \(p=1\): uniform in \(t\),
+  \item \(p>1\): bias toward high \(t\),
+  \item \(0<p<1\): bias toward low \(t\).
+\end{itemize}
+
+The current active run uses
+\begin{equation}
+  p = 0.6,
+\end{equation}
+because low-\(t\) errors were found to matter most for final sample amplitude in the linear flow setup.
+
+\section{Optimization and EMA}
+
+The trainer uses:
+\begin{itemize}[leftmargin=1.5em]
+  \item optimizer: Adam,
+  \item batch size: \(250\),
+  \item gradient clipping: \(\|\nabla\|_2 \le 1\),
+  \item base learning rate: \(2\times 10^{-5}\),
+  \item a flat LR hold for \(300\) epochs,
+  \item then cosine decay to \(10\%\) of the base LR,
+  \item exponential moving average of weights with decay \(0.99\),
+  \item EMA used for evaluation only after a warmup of \(300\) epochs.
+\end{itemize}
+
+This EMA warmup was added because a slower EMA (historically \(0.999\)) lagged too far behind the model in short/medium runs and artificially flattened early spectral diagnostics.
+
+\section{Flat-Sky Spectral Diagnostics}
+
+\subsection{Power spectrum estimator}
+
+For each \(64\times 64\) patch at angular pixel size \(r\) (in radians), let the physical side lengths be
+\begin{equation}
+  L_x = Wr,\qquad L_y = Hr.
+\end{equation}
+The notebook computes discrete Fourier transforms on the grid
+\begin{equation}
+  \ell_x = 2\pi \nu_x,\qquad \ell_y = 2\pi \nu_y,
+\end{equation}
+where \(\nu_x,\nu_y\) are the discrete FFT frequencies returned by \texttt{fftfreq} with spacing \(r\). The radial multipole assigned to each Fourier pixel is
+\begin{equation}
+  \ell = \sqrt{\ell_x^2 + \ell_y^2}.
+\end{equation}
+
+If \(T_{ij}\) is the temperature map on the patch, the notebook uses the convention
+\begin{equation}
+  \widehat T(\ell_x,\ell_y)
+  =
+  \sum_{i=0}^{H-1}\sum_{j=0}^{W-1}
+  T_{ij}\,
+  e^{-2\pi i\left(i\nu_y+j\nu_x\right)}.
+\end{equation}
+For \(T\), the flat-sky power is estimated by
+\begin{equation}
+  P^{TT}(\ell_x,\ell_y)
+  =
+  \frac{r^2}{HW}
+  |\widehat T(\ell_x,\ell_y)|^2.
+\end{equation}
+The prefactor \(r^2/(HW)\) converts the squared FFT amplitude into an angular power density consistent with the patch pixel area.
+
+For polarization, the notebook performs the standard local flat-sky \(E/B\) decomposition:
+\begin{align}
+  E_{\bm{\ell}} &= -Q_{\bm{\ell}} \cos(2\phi_{\bm{\ell}}) - U_{\bm{\ell}} \sin(2\phi_{\bm{\ell}}),\\
+  B_{\bm{\ell}} &= \phantom{-}Q_{\bm{\ell}} \sin(2\phi_{\bm{\ell}}) - U_{\bm{\ell}} \cos(2\phi_{\bm{\ell}}),
+\end{align}
+where
+\begin{equation}
+  \phi_{\bm{\ell}} = \mathrm{atan2}(\ell_y,\ell_x).
+\end{equation}
+These are the flat-sky analogues of the full-sky spin-2 \(Q/U \leftrightarrow E/B\) transform. The corresponding power estimators are then
+\begin{equation}
+  P^{EE} = \frac{r^2}{HW}|E_{\bm{\ell}}|^2,\qquad
+  P^{BB} = \frac{r^2}{HW}|B_{\bm{\ell}}|^2,\qquad
+  P^{TE} = \frac{r^2}{HW}\Re\bigl(T_{\bm{\ell}} E_{\bm{\ell}}^\ast\bigr).
+\end{equation}
+
+The radial spectra are formed by azimuthal averaging in up to \(30\) \(\ell\)-bins. If \(b\) is a bin and \(\mathcal{I}_b\) is the set of Fourier pixels whose radial multipole falls into that bin, then for a single patch
+\begin{equation}
+  \widehat C_b^{XY}
+  =
+  \frac{1}{|\mathcal{I}_b|}
+  \sum_{\bm{\ell}\in \mathcal{I}_b} P^{XY}(\bm{\ell}),
+  \qquad
+  XY\in\{TT,EE,BB,TE\}.
+\end{equation}
+The displayed curve is then an average over many held-out or generated patches:
+\begin{equation}
+  \overline C_b^{XY}
+  =
+  \frac{1}{N_{\mathrm{patch}}}
+  \sum_{n=1}^{N_{\mathrm{patch}}} \widehat C_{b,n}^{XY}.
+\end{equation}
+
+Finally, the plotted quantity is
+\begin{equation}
+  \widehat D_b^{XY}
+  =
+  \frac{\ell_b(\ell_b+1)}{2\pi}\,\overline C_b^{XY},
+\end{equation}
+with \(\ell_b\) the bin center. On small patches and for \(\ell\gg 1\), this is essentially the flat-sky analogue of the standard full-sky \(D_\ell\).
+
+\subsection{Smoothing before spectra}
+
+Before spectral estimation, the notebook applies the same isotropic Gaussian blur to both reference and generated patches:
+\begin{equation}
+  x \mapsto G_{\sigma_{\mathrm{spec}}} * x,
+  \qquad
+  \sigma_{\mathrm{spec}} = 1.2\ \text{pixels}.
+\end{equation}
+
+This was introduced to suppress high-\(\ell\) discretization and solver artefacts on small patches.
+
+In Fourier space, this smoothing multiplies each mode approximately by
+\begin{equation}
+  \exp\!\left[-\frac12 \sigma_{\mathrm{ang}}^2 \ell^2\right],
+\end{equation}
+where \(\sigma_{\mathrm{ang}} = \sigma_{\mathrm{spec}}\,r\) in angular units. Thus it acts as a controlled low-pass filter before the power estimator is applied.
+
+\subsection{Why \(x_0\)-hat spectra are used}
+
+An important debugging fix was to stop computing spectra from the raw terminal sampler state \(x_t\). The correct object to compare to the data prior is the denoised estimate
+\begin{equation}
+  \hat z = \hat x_0.
+\end{equation}
+
+Using raw \(x_t\) at \(t<1\) leaves residual Gaussian noise in the map and artificially pushes spectral power toward high \(\ell\), which previously mimicked a ``shifted'' TT peak.
+
+\subsection{Variance-matched diagnostic}
+
+The post-training spectral block also constructs a purely diagnostic, post hoc variance-matched version of the generated maps:
+\begin{equation}
+  s_c
+  =
+  \frac{\mathrm{std}(\text{reference}_c)}
+       {\mathrm{std}(\text{generated}_c)},
+  \qquad
+  \hat x_c^{\mathrm{vm}} = s_c \hat x_c.
+\end{equation}
+
+This is \emph{not} part of sampling itself. It is used only to answer the question:
+\begin{quote}
+If the generated maps were corrected by a simple per-channel multiplicative variance rescaling, how much of the spectral discrepancy would disappear?
+\end{quote}
+
+The observation that variance-matched spectra improve a lot was one of the main motivations for adding \(L_{\mathrm{var}}\).
+
+If the generated fields were exactly multiplicatively miscalibrated,
+\begin{equation}
+  \hat T \approx s_T T,\qquad
+  \hat E \approx s_E E,\qquad
+  \hat B \approx s_B B,
+\end{equation}
+then the spectra would transform approximately as
+\begin{equation}
+  \widehat C_\ell^{TT}\approx s_T^2 C_\ell^{TT},\qquad
+  \widehat C_\ell^{EE}\approx s_E^2 C_\ell^{EE},\qquad
+  \widehat C_\ell^{BB}\approx s_B^2 C_\ell^{BB},\qquad
+  \widehat C_\ell^{TE}\approx s_T s_E C_\ell^{TE}.
+\end{equation}
+The fact that post hoc variance matching helps substantially is therefore strong evidence that the remaining error is dominated by under-dispersion rather than by a wrong acoustic scale or by catastrophic mode mixing.
+
+\section{Diagnostic Quantities Added During Debugging}
+
+The notebook now records and/or prints:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{clip\_frac}: fraction of sampler-state entries that hit the state clamp,
+  \item \texttt{val\_loss\_field}: vector-field validation MSE,
+  \item \texttt{val\_loss\_field\_zero}: zero-predictor baseline for the vector-field loss,
+  \item \texttt{val\_loss\_x0}: clean-map reconstruction MSE,
+  \item \texttt{val\_loss\_t\_lowfreq}: low-frequency \(T\)-channel validation loss,
+  \item \texttt{val\_loss\_var\_smoothed}: smoothed variance calibration loss,
+  \item timestep-binned validation losses,
+  \item raw and variance-matched TT relative errors,
+  \item per-channel RMS before and after spectral smoothing.
+\end{itemize}
+
+These diagnostics were added to separate several failure modes that looked similar visually but were mathematically different:
+\begin{enumerate}[leftmargin=1.5em]
+  \item true sampler blow-up,
+  \item wrong endpoint quantity (\(x_t\) instead of \(\hat x_0\)),
+  \item poor vector-field learning,
+  \item under-dispersion / variance shrinkage,
+  \item low-frequency under-power in \(T\).
+\end{enumerate}
+
+\section{Chronology of Major Fixes and What They Solved}
+
+\subsection{Fix 1: true validation split}
+
+Originally, the notebook compared against training data while labeling it as validation. This was corrected so that \texttt{val\_norm} is used for held-out diagnostics and spectral references whenever available.
+
+\subsection{Fix 2: clip fraction and endpoint range}
+
+Early score-based samples saturated at the state clamp, so \texttt{clip\_frac} was introduced to quantify instability rather than hiding it in the spectra.
+
+\subsection{Fix 3: denoise before spectra}
+
+The notebook was corrected to compare spectra of \(\hat x_0\) instead of raw terminal \(x_t\). This removed an artificial high-\(\ell\) bias.
+
+\subsection{Fix 4: direct flow matching}
+
+Because the original score-conversion sampler remained unstable even after endpoint handling changes, the notebook switched from epsilon/score prediction to direct vector-field prediction and Heun ODE sampling.
+
+\subsection{Fix 5: EMA for sampling, then EMA warmup}
+
+EMA was added for better sampling stability, but a too-slow EMA initially made early diagnostics misleadingly flat. This led to the current \(0.99\) EMA with warmup before evaluation.
+
+\subsection{Fix 6: low-\(t\) bias and \(x_0\) reconstruction loss}
+
+After instability was removed, the main issue became underpowered spectra. Low-\(t\) bias and an auxiliary \(x_0\) reconstruction loss were added because endpoint errors in the linear path scale like \((1-t)\).
+
+\subsection{Fix 7: low-frequency \(T\) loss}
+
+When the TT peak shape became roughly correct but low/mid-\(\ell\) power was still suppressed, the notebook added \(L_{\mathrm{lf},T}\).
+
+\subsection{Fix 8: smoothed variance matching loss}
+
+When variance-matched spectra looked much better than raw spectra, \(L_{\mathrm{var}}\) was added to explicitly calibrate smoothed-domain channel variances during training.
+
+\section{Current Active Configuration}
+
+The current active training cell uses:
+\begin{center}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.38\linewidth}p{0.48\linewidth}}
+\toprule
+Quantity & Value \\
+\midrule
+Prior used for training & true CMB prior \texttt{prior\_f} \\
+Patch size & \(64\times 64\) \\
+Patch resolution & \(6.7'\) per pixel \\
+Path & linear, \(\alpha_t=t,\ \beta_t=1-t\) \\
+Sampling domain & \(t\in[0,1]\) \\
+Sampler & Heun ODE (\(\sigma=0\)) \\
+Spectral smoothing & \(1.2\) pixels \\
+Spectral \(\ell\)-cut & \(\ell \le 1200\) \\
+State clamp & \(\pm 5\) (diagnostic guardrail) \\
+Network channels & \([32,64,128,256]\) \\
+Residual layers per stage & \(2\) \\
+Time embedding dimension & \(64\) \\
+Epochs & \(2500\) \\
+Batch size & \(250\) \\
+Base learning rate & \(2\times 10^{-5}\) \\
+LR hold & \(300\) epochs \\
+Cosine floor factor & \(0.1\) \\
+EMA decay & \(0.99\) \\
+EMA eval warmup & \(300\) epochs \\
+\(t\)-bias power & \(0.6\) \\
+\(\lambda_{x_0}\) & \(0.25\) \\
+\(\lambda_{\mathrm{lf},T}\) & \(0.5\) \\
+\(\sigma_{\mathrm{lf},T}\) & \((2.0,\ 4.0)\) pixels \\
+\(\lambda_{\mathrm{var}}\) & \(1.0\) \\
+\(\sigma_{\mathrm{var}}\) & \(1.2\) pixels \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Interpretation of the Current Remaining Error}
+
+At the latest stage, the dominant error is no longer catastrophic instability. Instead:
+\begin{itemize}[leftmargin=1.5em]
+  \item the spectral peak locations are broadly correct,
+  \item clipping is near zero,
+  \item but the raw generated spectra are often lower than the validation spectra,
+  \item and variance-matched spectra improve significantly.
+\end{itemize}
+
+This indicates that the current model is much closer to the correct spatial structure than before, but is still somewhat under-dispersed in amplitude. The newly added \(L_{\mathrm{var}}\) is intended to attack exactly this remaining gap.
+
+\section{Summary}
+
+In summary, the notebook has evolved from a classical epsilon-prediction diffusion prototype into a more stable and better-targeted linear flow-matching prior model for normalized \(T,Q,U\) CMB patches. The key stages were:
+\begin{enumerate}[leftmargin=1.5em]
+  \item build realistic full-sky simulated priors and convert them to flat patches;
+  \item normalize train/validation splits channel-wise from train statistics;
+  \item define a Gaussian conditional probability path \(x_t=\alpha_t z + \beta_t\e\);
+  \item first try score-based diffusion training and sampling;
+  \item diagnose stiff reverse dynamics and clipping;
+  \item switch to direct vector-field prediction and Heun ODE sampling;
+  \item add losses and diagnostics to improve endpoint reconstruction, low-frequency TT structure, and variance calibration.
+\end{enumerate}
+
+This structure is scientifically useful because it incrementally moves the notebook from ``a model that trains'' to ``a model whose generated prior samples are spectrally and statistically faithful enough to be used inside a posterior sampling pipeline.''
+
+\end{document}
