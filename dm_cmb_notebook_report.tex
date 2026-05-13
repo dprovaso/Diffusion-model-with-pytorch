@@ -301,6 +301,124 @@ On a finite rectangular patch of angular side lengths \(L_x,L_y\), the Fourier m
 \end{equation}
 The notebook computes FFTs of the projected \(T,Q,U\) patches, constructs flat-sky \(E/B\) fields from the Fourier-space \(Q/U\) modes, and then averages \(|\widetilde X(\bm{\ell})|^2\) or \(\widetilde X(\bm{\ell})\widetilde Y^\ast(\bm{\ell})\) over annuli in \(|\bm{\ell}|\). This annular averaging is the flat-sky analogue of averaging over all \(m\) at fixed full-sky multipole \(\ell\).
 
+\subsection{Relation between \(C_\ell\), \(P(k)\), and \(C(\theta)\)}
+
+The same two-point information can be represented in three closely related ways:
+\begin{enumerate}[leftmargin=1.5em]
+  \item by the full-sky angular power spectrum \(C_\ell\),
+  \item by the real-space angular correlation function \(C(\theta)\),
+  \item by the flat-sky patch power spectrum \(P(k)\).
+\end{enumerate}
+The notebook uses the third representation because it works on projected tangent-plane patches, whereas much of the CMB literature starts from the first two \cite{zaldarriaga1997,kamionkowski1997}.
+
+For a statistically isotropic scalar field on the sphere,
+\begin{equation}
+  C(\theta)
+  :=
+  \EE[T(\hat n)T(\hat n')],
+  \qquad
+  \hat n\cdot\hat n'=\cos\theta,
+\end{equation}
+and, as derived earlier from the addition theorem,
+\begin{equation}
+  C(\theta)
+  =
+  \sum_{\ell=0}^{\infty}
+  \frac{2\ell+1}{4\pi}
+  C_\ell
+  P_\ell(\cos\theta).
+\end{equation}
+Thus \(C(\theta)\) and \(C_\ell\) are simply two representations of the same rotationally invariant two-point function.
+
+On a sufficiently small patch one replaces the sphere by its tangent plane and writes
+\begin{equation}
+  T(\bm{x})
+  =
+  \int \frac{\dd^2\bm{k}}{(2\pi)^2}
+  \widetilde T(\bm{k})\,e^{i\bm{k}\cdot\bm{x}},
+\end{equation}
+with \(\bm{x}\in\RR^2\) measured in radians. Statistical homogeneity and isotropy on the plane imply
+\begin{equation}
+  \EE\!\left[\widetilde T(\bm{k})\widetilde T^\ast(\bm{k}')\right]
+  =
+  (2\pi)^2\delta^{(2)}(\bm{k}-\bm{k}')\,P(k),
+  \qquad
+  k=|\bm{k}|.
+\end{equation}
+The corresponding real-space correlation function is
+\begin{align}
+  C(r)
+  &:=
+  \EE[T(\bm{x})T(\bm{x}+\bm{r})] \\
+  &=
+  \int \frac{\dd^2\bm{k}}{(2\pi)^2}
+  P(k)\,e^{i\bm{k}\cdot\bm{r}}.
+\end{align}
+After averaging over the angular direction of \(\bm{k}\), the plane-wave factor reduces to a Bessel function:
+\begin{equation}
+  C(r)
+  =
+  \int_0^\infty \frac{k\,\dd k}{2\pi}\,
+  P(k)\,J_0(kr),
+\end{equation}
+where \(J_0\) is the order-zero Bessel function and \(r=|\bm{r}|\).
+
+To relate this to the full sky, use the standard small-angle asymptotic form of the Legendre polynomials,
+\begin{equation}
+  P_\ell(\cos\theta)
+  \approx
+  J_0\!\big((\ell+\tfrac12)\theta\big),
+  \qquad
+  \theta\ll 1,
+\end{equation}
+and replace the sum over \(\ell\) by an integral. Then
+\begin{align}
+  C(\theta)
+  &=
+  \sum_{\ell}
+  \frac{2\ell+1}{4\pi} C_\ell P_\ell(\cos\theta) \\
+  &\approx
+  \int_0^\infty \frac{\ell\,\dd\ell}{2\pi}\,
+  C_\ell\,J_0(\ell\theta).
+\end{align}
+This has exactly the same structure as the flat-sky formula
+\begin{equation}
+  C(r)
+  =
+  \int_0^\infty \frac{k\,\dd k}{2\pi}\,
+  P(k)\,J_0(kr).
+\end{equation}
+Hence, in the small-angle limit,
+\begin{equation}
+  r \leftrightarrow \theta,
+  \qquad
+  k \leftrightarrow \ell,
+  \qquad
+  P(k) \leftrightarrow C_\ell,
+\end{equation}
+up to convention-dependent details such as using \(\ell+\tfrac12\) instead of \(\ell\), FFT normalization, and finite-patch window effects.
+
+This explains the notation used in different papers:
+\begin{itemize}[leftmargin=1.5em]
+  \item \(C_\ell\) is the natural full-sky harmonic-space quantity;
+  \item \(C(\theta)\) is the same information in real angular separation;
+  \item \(P(k)\) is the flat-sky harmonic-space version on a local patch.
+\end{itemize}
+
+The notebook therefore does \emph{not} need a conceptual change of estimator in order to compare spectra on patches. It is already computing the flat-sky analogue of \(C_\ell\). The only difference is notation: in patch-based CMB work one may write the radial Fourier coordinate either as \(k\) or as \(\ell\). The notebook currently labels the radial patch Fourier mode by \(\ell\) to emphasize its connection to the standard CMB multipole convention, but mathematically this is the same flat-sky object that another paper may denote by \(P(k)\).
+
+For the same reason, the flat-sky analogue of the commonly plotted quantity
+\begin{equation}
+  D_\ell = \frac{\ell(\ell+1)}{2\pi}C_\ell
+\end{equation}
+is
+\begin{equation}
+  \Delta^2(k)
+  :=
+  \frac{k^2}{2\pi}P(k),
+\end{equation}
+which measures variance per logarithmic interval in \(k\). Since the notebook bins radial Fourier modes and labels the bin centers by \(\ell\), its plotted flat-sky \(D_\ell\)-type curves are best understood as patch-based approximations to this same variance-per-log-scale quantity.
+
 The flat-sky polarization formulas can also be derived explicitly. Define the complex polarization field
 \begin{equation}
   P(\bm{x}) := Q(\bm{x}) + iU(\bm{x}).
@@ -1210,10 +1328,11 @@ When the TT peak location became roughly correct but the low/mid-\(\ell\) amplit
     \|G_\sigma * \hat T - G_\sigma * T\|^2
   \right].
 \end{equation}
-The notebook averages this over
+The notebook averages this over the active blur set
 \begin{equation}
-  \sigma \in \{2,4\}\ \text{pixels}.
+  \sigma \in \{2\}\ \text{pixels},
 \end{equation}
+after earlier experiments showed that including a broader \(\sigma=4\) pixel filter could over-broaden the first TT peak during late-stage calibration.
 
 In Fourier space, Gaussian blur applies the weight
 \begin{equation}
@@ -1242,7 +1361,7 @@ Their average is therefore a smoother and more robust proxy for ``match the larg
 
 The current active coefficient is
 \begin{equation}
-  \lambda_{\mathrm{lf},T} = 0.5.
+  \lambda_{\mathrm{lf},T} = 0.15.
 \end{equation}
 
 \subsection{Stage 5: smoothed variance matching loss}
@@ -1577,6 +1696,212 @@ then the spectra would transform approximately as
 \end{equation}
 The fact that post hoc variance matching helps substantially is therefore strong evidence that the remaining error is dominated by under-dispersion rather than by a wrong acoustic scale or by catastrophic mode mixing.
 
+\subsection{Post-training spectral workflow: what the last notebook cells actually compute}
+
+The final notebook cells do not simply ``plot a spectrum of the generated maps.'' They implement a multi-stage comparison pipeline designed to separate several conceptually different questions:
+\begin{enumerate}[leftmargin=1.5em]
+  \item what the sampler produced at the end of the learned flow,
+  \item what clean \(T,Q,U\) maps are implied by that terminal state,
+  \item whether remaining disagreement is mainly a unit/calibration issue,
+  \item whether the learned prior matches held-out validation patches,
+  \item whether it matches a fresh Monte Carlo theory benchmark generated from the original \(C_\ell\).
+\end{enumerate}
+
+More concretely, after choosing a trained checkpoint, the notebook:
+\begin{enumerate}[leftmargin=1.5em]
+  \item draws \(N_{\mathrm{gen}}\) Gaussian initial states \(x_0\sim \mathcal N(0,I)\),
+  \item integrates the learned ODE on a time grid \(t_1,\dots,t_{N_{\mathrm{steps}}}\),
+  \item obtains the terminal state \(x_{t_{\max}}\),
+  \item reconstructs the clean-map estimate \(\hat z = \hat x_0\),
+  \item optionally denormalizes \(\hat z\) back to the original patch units,
+  \item optionally smooths both reference and generated patches by the same Gaussian blur,
+  \item computes flat-sky \(TT,EE,BB,TE\) patch spectra with the same FFT estimator,
+  \item displays both the raw patch spectra \(P(k)\)-style and the rescaled \(D_\ell\)-style curves.
+\end{enumerate}
+
+The point of this workflow is that each step controls a specific source of ambiguity:
+\begin{itemize}[leftmargin=1.5em]
+  \item reconstructing \(\hat z\) removes residual path noise,
+  \item denormalizing restores physical map units,
+  \item smoothing suppresses high-\(\ell\) discretization artefacts consistently on both sides,
+  \item using the same patch-spectrum estimator for all references removes geometry mismatch.
+\end{itemize}
+
+\subsection{Best-checkpoint sampling and the role of \(x_{t_{\max}}\)}
+
+The final plotting cells do not necessarily sample the \emph{last} epoch. Instead, whenever available, they temporarily load the checkpoint state
+\begin{equation}
+  \theta^\star
+  =
+  \arg\min_{e\in\mathcal E_{\mathrm{diag}}} J_{\mathrm{spec}}(e),
+\end{equation}
+where \(J_{\mathrm{spec}}\) is the spectral validation score recorded during training and \(\mathcal E_{\mathrm{diag}}\) is the set of epochs at which spectral diagnostics were run. This is why the final spectrum cell can report messages such as ``sampling best spectral checkpoint from epoch \(e^\star\).'' The scientific reason is simple: in the calibration regime, the spectrally best checkpoint often occurs before the final optimization epoch.
+
+The sampler itself produces a terminal path state
+\begin{equation}
+  x_{t_{\max}},
+\end{equation}
+not a clean sky map. In the current linear path,
+\begin{equation}
+  x_t = t z + (1-t)\e,
+  \qquad
+  \hat z = x_t + (1-t)\hat v_\theta(x_t,t),
+\end{equation}
+so the plotted post-training maps are always based on \(\hat z\), never on the raw \(x_{t_{\max}}\). This distinction matters because the path state still contains residual noise unless \(t_{\max}=1\) and the learned transport is exact.
+
+\subsection{Normalized-domain versus denormalized physical-unit spectra}
+
+The notebook stores both raw and normalized patch datasets. If \(x_c(\bm{\theta})\) is the raw patch channel \(c\in\{T,Q,U\}\), then the training variable is
+\begin{equation}
+  z_c(\bm{\theta})
+  =
+  \frac{x_c(\bm{\theta})-\mu_c}{\sigma_c},
+\end{equation}
+with \(\mu_c,\sigma_c\) estimated from the training split only. The generated patches \(\hat z\) therefore live natively in a dimensionless normalized domain.
+
+The final plotting block now exposes two conceptually distinct comparison domains:
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{normalized-domain spectra}: compute spectra directly from \(\hat z\) and the normalized validation patches;
+  \item \textbf{denormalized physical-unit spectra}: first reconstruct
+  \begin{equation}
+    \hat x_c(\bm{\theta})
+    =
+    \sigma_c \hat z_c(\bm{\theta}) + \mu_c,
+  \end{equation}
+  then compute spectra from \(\hat x\) and the corresponding raw validation patches.
+\end{enumerate}
+
+This distinction matters because the raw patch maps are intended to be in \(\mu\mathrm{K}_{\mathrm{CMB}}\), so denormalized spectra carry units
+\begin{equation}
+  [P^{XY}] = [C_\ell^{XY}] = [D_\ell^{XY}] = (\mu\mathrm{K}_{\mathrm{CMB}})^2.
+\end{equation}
+By contrast, normalized-domain spectra are dimensionless and are best interpreted as training-space diagnostics rather than directly physical power spectra.
+
+For the temperature auto-spectrum and away from the exact zero mode, normalization is almost a pure amplitude rescaling:
+\begin{equation}
+  \widetilde z_T(\bm{k})
+  \approx
+  \frac{\widetilde x_T(\bm{k})}{\sigma_T},
+\end{equation}
+so
+\begin{equation}
+  P_{TT}^{\mathrm{norm}}(k)
+  \approx
+  \frac{P_{TT}^{\mathrm{phys}}(k)}{\sigma_T^2}.
+\end{equation}
+For polarization, however, separate \(Q\)- and \(U\)-channel normalization enters the \(E/B\) decomposition and is therefore not simply a common multiplicative rescaling. This is why denormalized \(EE,BB,TE\) comparisons are more physically faithful than normalized ones.
+
+\subsection{Raw patch spectra \(P(k)\)-style versus \(D_\ell\)-style display}
+
+The final notebook cells now produce two related but distinct visualizations.
+
+First, they can display the raw flat-sky patch spectra
+\begin{equation}
+  \overline C_b^{XY}
+  \equiv
+  \overline P_b^{XY},
+\end{equation}
+that come directly from \texttt{flat\_sky\_full\_spectra}. In the note of Section~2, this is exactly the \(P(k)\)-style object: it is the radial average of the Fourier-space patch power before any CMB-specific rescaling.
+
+Second, they display the CMB-style curves
+\begin{equation}
+  \widehat D_b^{XY}
+  =
+  \frac{\ell_b(\ell_b+1)}{2\pi}\,\overline C_b^{XY}.
+\end{equation}
+The two views contain the same second-order information. The difference is only representation:
+\begin{itemize}[leftmargin=1.5em]
+  \item the raw \(P(k)\)-style plot is the most direct comparison to flat-sky ML/CMB patch papers,
+  \item the \(D_\ell\)-style plot is easier to compare to standard full-sky CMB convention and to the acoustic-peak intuition.
+\end{itemize}
+
+Since the notebook labels the radial Fourier coordinate by \(\ell\) rather than \(k\), one should interpret the \(P(k)\)-style plots as
+\begin{equation}
+  k \simeq \ell
+\end{equation}
+in the flat-sky limit discussed earlier. So these are not different estimators; they are different displays of the same annular patch power.
+
+\subsection{Why the theory comparison should go through patches}
+
+The most important conceptual point in the current notebook is that the best theory comparison is \emph{not} a direct overlay of the generated patch spectrum with the raw CAMB \(C_\ell\) curve. The patch estimator acts on maps that have already passed through several transformations:
+\begin{equation}
+  C_\ell^{XY,\mathrm{theory}}
+  \longrightarrow
+  \text{Gaussian sky realization}
+  \longrightarrow
+  \text{beam + pixel window}
+  \longrightarrow
+  \text{gnomonic patch extraction}
+  \longrightarrow
+  \text{mask/footprint selection}
+  \longrightarrow
+  \text{FFT annular averaging}.
+\end{equation}
+Therefore the object estimated by the notebook is not the ideal full-sky \(C_\ell\) itself, but a patch-windowed flat-sky observable of the schematic form
+\begin{equation}
+  \widehat P_{\mathrm{patch}}^{XY}(k)
+  \sim
+  |W_{\mathrm{patch}}(k)|^2\,
+  |B(k)|^2\,
+  |P_{\mathrm{pix}}(k)|^2\,
+  P_{\mathrm{sky}}^{XY}(k),
+\end{equation}
+with additional finite-patch and projection effects suppressed in this notation.
+
+For that reason, the notebook now constructs a Monte Carlo theory benchmark in the same observable space:
+\begin{enumerate}[leftmargin=1.5em]
+  \item draw fresh full-sky Gaussian realizations from the CAMB \(C_\ell\),
+  \item apply the same beam and pixel-window convention used in prior generation,
+  \item extract gnomonic patches with the same patch size and angular sampling,
+  \item enforce the same footprint validity criterion,
+  \item apply the same optional post-smoothing,
+  \item compute the same flat-sky \(TT,EE,BB,TE\) patch spectra.
+\end{enumerate}
+If \(\widehat P_{b,n}^{XY,\mathrm{th}}\) is the resulting patch-spectrum estimator for theory patch \(n\), the Monte Carlo theory benchmark is
+\begin{equation}
+  \overline P_b^{XY,\mathrm{th}}
+  =
+  \frac{1}{N_{\mathrm{th}}}
+  \sum_{n=1}^{N_{\mathrm{th}}}
+  \widehat P_{b,n}^{XY,\mathrm{th}}.
+\end{equation}
+This is the correct apples-to-apples theoretical target for the generated patch prior, because it lives in the same geometry, same units, and same estimator family as the generated and validation spectra.
+
+\subsection{Analytic filtered \(D_\ell\) guide}
+
+In addition to the Monte Carlo patch benchmark, the notebook can also overlay a simpler analytic reference: the beam- and pixel-window-filtered full-sky theory curve. If the original CAMB spectra are \(C_\ell^{XY}\), define
+\begin{align}
+  \widetilde C_\ell^{TT} &= B_\ell^2 (P_\ell^T)^2 C_\ell^{TT},\\
+  \widetilde C_\ell^{EE} &= B_\ell^2 (P_\ell^P)^2 C_\ell^{EE},\\
+  \widetilde C_\ell^{BB} &= B_\ell^2 (P_\ell^P)^2 C_\ell^{BB},\\
+  \widetilde C_\ell^{TE} &= B_\ell^2 P_\ell^T P_\ell^P C_\ell^{TE},
+\end{align}
+where \(B_\ell\) is the Gaussian beam and \(P_\ell^{T,P}\) are the HEALPix temperature and polarization pixel windows. The corresponding displayed curve is
+\begin{equation}
+  \widetilde D_\ell^{XY}
+  =
+  \frac{\ell(\ell+1)}{2\pi}\,\widetilde C_\ell^{XY}.
+\end{equation}
+
+This analytic line is scientifically useful as a guide, because it shows how the ideal full-sky theory is altered by the map-resolution convention alone. But it is not the primary target of the notebook spectrum estimator, because it still omits patch extraction, finite-footprint selection, FFT binning, and projection effects. For that reason the current notebook removes it from the main comparison panels and keeps the patch-based Monte Carlo benchmark as the operative theory reference.
+
+\subsection{Why the notebook now emphasizes patch-based references}
+
+The final comparison block can therefore place three different references on the same axes:
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{held-out validation patches}: finite-sample empirical target from the same stored prior bank;
+  \item \textbf{Monte Carlo theory-patch benchmark}: fresh ensemble target from the original CAMB \(C_\ell\).
+\end{enumerate}
+
+These references answer different questions:
+\begin{itemize}[leftmargin=1.5em]
+  \item validation patches tell us whether the generator matches the stored prior bank it was trained against;
+  \item theory-patch Monte Carlo tells us whether the learned prior matches the intended Gaussian sky ensemble in the same observable geometry.
+\end{itemize}
+The analytic filtered full-sky line remains conceptually useful as an auxiliary diagnostic, but once the goal is an apples-to-apples comparison with patch-based generated samples, it is better treated as a secondary check rather than as one of the main plotted references.
+
+Seen this way, the final cells are not ``just plotting more curves.'' They form the bridge between machine-learning diagnostics in patch space and the scientifically meaningful statement that the learned prior reproduces the intended CMB two-point statistics.
+
 \section{Diagnostic Quantities Added During Debugging}
 
 The notebook now records and/or prints:
@@ -1675,8 +2000,8 @@ EMA decay & \(0.99\) \\
 EMA eval warmup & \(300\) epochs \\
 \(t\)-bias power & \(0.6\) \\
 \(\lambda_{x_0}\) & \(0.25\) \\
-\(\lambda_{\mathrm{lf},T}\) & \(0.5\) \\
-\(\sigma_{\mathrm{lf},T}\) & \((2.0,\ 4.0)\) pixels \\
+\(\lambda_{\mathrm{lf},T}\) & \(0.15\) \\
+\(\sigma_{\mathrm{lf},T}\) & \((2.0)\) pixels \\
 \(\lambda_{\mathrm{var}}\) & \(1.0\) \\
 \(\sigma_{\mathrm{var}}\) & \(1.2\) pixels \\
 Auxiliary ramp start & epoch \(50\) \\
@@ -1684,6 +2009,9 @@ Auxiliary ramp full strength & epoch \(200\) \\
 Auxiliary ramp decay epoch & epoch \(500\) \\
 Auxiliary final scale & \(0.55\) \\
 Spectral checkpoint cadence & every \(50\) epochs until \(500\), then every \(250\) \\
+Post-training comparison domain & denormalized physical units by default \\
+Theory patch benchmark & \(8\) full-sky realizations, \(64\) patches each \\
+Analytic theory guide & beam+pixwin-filtered \(D_\ell\) overlay \\
 \bottomrule
 \end{tabular}
 \end{center}
