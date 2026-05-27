@@ -1,0 +1,29 @@
+\contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
+\contentsline {section}{\numberline {2}Idealized CMB Power Spectra}{3}{section.2}%
+\contentsline {paragraph}{Cosmic variance.}{4}{section*.2}%
+\contentsline {section}{\numberline {3}Realistic CMB Power Spectra}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}HEALPix pixelisation}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Band-limit and downgrading}{5}{subsection.3.2}%
+\contentsline {paragraph}{Harmonic-space downgrading.}{5}{section*.3}%
+\contentsline {subsection}{\numberline {3.3}Beam}{6}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Pixel window}{7}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Masking}{7}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}Flat-sky projection and patch spectra}{8}{subsection.3.6}%
+\contentsline {subsection}{\numberline {3.7}Patch-level standardisation}{9}{subsection.3.7}%
+\contentsline {subsection}{\numberline {3.8}Sum--difference noise estimates from independent splits}{9}{subsection.3.8}%
+\contentsline {section}{\numberline {4}Data}{9}{section.4}%
+\contentsline {paragraph}{Common processing parameters.}{9}{section*.4}%
+\contentsline {subsection}{\numberline {4.1}Observed CMB data}{10}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}$p(f)$: simulated CMB priors}{11}{subsection.4.2}%
+\contentsline {paragraph}{Cosmology and CAMB call.}{12}{section*.5}%
+\contentsline {paragraph}{Lensed-map sampler.}{12}{section*.6}%
+\contentsline {paragraph}{Post-lensing instrumental response.}{13}{section*.7}%
+\contentsline {paragraph}{Why not just Gaussian draws from the lensed $C_\ell $?}{13}{section*.8}%
+\contentsline {paragraph}{Approximations and forward look: explicit lensing operator (Option 2).}{14}{section*.9}%
+\contentsline {paragraph}{Output.}{15}{section*.10}%
+\contentsline {subsection}{\numberline {4.3}$p(x)$: simulated foreground priors}{15}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Conversion to flat patches and saved prior datasets}{16}{subsection.4.4}%
+\contentsline {paragraph}{Per-realisation pipeline.}{16}{section*.11}%
+\contentsline {paragraph}{Split and per-channel standardisation.}{16}{section*.12}%
+\contentsline {paragraph}{On-disk format.}{16}{section*.13}%
+\contentsline {section}{\numberline {5}Diffusion model and flow matching}{17}{section.5}%

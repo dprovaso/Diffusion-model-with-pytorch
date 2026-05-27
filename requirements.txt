@@ -10,3 +10,9 @@ tqdm>=4.65.0
 jupyter>=1.0.0
 ipykernel>=6.25.0
 camb>=1.6.0
+healpy>=1.16.0
+pysm3>=3.4.0
+# lenspyx wraps ducc0 for fast curved-sky CMB lensing remapping.
+# Install with: pip install --no-binary ducc0 lenspyx
+lenspyx>=2.0.5
+ducc0>=0.30.0

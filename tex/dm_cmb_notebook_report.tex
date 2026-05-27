@@ -1,0 +1,764 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,bm,mathtools}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{cite}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\Var}{\mathrm{Var}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\T}{\mathrm{T}}
+\newcommand{\e}{\varepsilon}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\uvec}{\bm{u}}
+\newcommand{\xvec}{\bm{x}}
+\newcommand{\zvec}{\bm{z}}
+\newcommand{\thetavec}{\bm{\theta}}
+\newcommand{\grad}{\nabla}
+
+\title{A Mathematical Note on \texttt{dm\_cmb.ipynb}:\\
+Patch-Based CMB Prior Learning with Flow Matching}
+\author{Technical note for the diffusion-model CMB notebook}
+\date{\today}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+We document the mathematical content and implementation choices of the notebook \texttt{dm\_cmb.ipynb}, which learns generative priors for $(T,Q,U)$ patches of the cosmic microwave background (CMB) and Galactic foregrounds at $143\,\mathrm{GHz}$ and validates them through flat-sky spectral diagnostics. The workflow combines standard CMB harmonic methods, including spin-weighted polarisation decompositions and Gaussian simulations from $C_\ell$ spectra \cite{zaldarriaga1997,kamionkowski1997,gorski2005,lewis2000camb,sullivan2024methods,scott2024pdg}, with a modern path-based generative model trained by direct flow matching \cite{ho2020ddpm,song2021sde,lipman2023flowmatching}. We describe in detail the pipeline used to bring Planck NPIPE / PR4 half-ring data and simulated priors to a common, well-defined representation: HEALPix pixelisation, harmonic downgrading, beam and pixel-window matching, sky masking, gnomonic patch extraction, spin-2 polarisation rotation, per-channel standardisation, and flat-sky spectrum estimation. The eventual scientific goal is posterior sampling for CMB component separation; this note focuses on the prior-learning stage, which is a prerequisite for any likelihood-based inference and which fixes the experimental conventions used in the rest of the work.
+\end{abstract}
+\tableofcontents
+\bigskip
+
+
+
+
+
+
+
+\section{Introduction}
+
+The cosmic microwave background (CMB) is a relic blackbody radiation field whose temperature and polarisation anisotropies encode the statistical properties of the very early universe and are central to modern cosmology \cite{scott2024pdg,planck2018overview}. CMB observations are however contaminated by Galactic foregrounds (most notably thermal dust and synchrotron emission), instrumental noise, and the angular smoothing and sky masking imposed by realistic telescopes. Recovering the underlying CMB signal from the observed maps is therefore a component-separation problem.
+
+In this work we expand on recent applications of deep generative modelling to CMB component separation \cite{heurtel2023dust} by exploring the use of \emph{flow-matching} diffusion-style models \cite{ho2020ddpm,song2021sde,lipman2023flowmatching} for joint inference of the foreground signal and the true CMB. Let $y$ denote the observed map, $x$ the foreground signal, $f$ the \emph{lensed} CMB, $n$ the instrumental noise, and $A$ the linear instrumental response (effective beam, pixel window, and sky mask). The observed signal model is
+\begin{align}
+    y = A\,(f + x) + n,
+    \label{eq:fwd_model}
+\end{align}
+where the gravitational lensing of the CMB is treated implicitly through the prior $p(f)$: the simulated $f$-prior used for training is constructed by drawing unlensed Gaussian primary CMB realisations together with an independent realisation of the lensing potential $\phi$ from a fiducial $C_L^{\phi\phi}$ and then remapping the unlensed sky onto the deflected sphere with the \texttt{lenspyx} curved-sky lensing engine \cite{reinecke2023ducc} (Sec.~\ref{sec:data_prior_f}). The forward operator $A$ therefore remains a linear post-lensing operator (effective beam, pixel window, and sky mask), while the non-Gaussianity induced by lensing on the CMB acoustic peaks, on the $E\!\to\!B$ leakage and on the $T$/$E\!\times\!\phi$ four-point function is carried by the simulated prior. Assuming a Gaussian noise model, the likelihood reads
+\begin{equation}
+    p(y\mid x,f) \propto \exp\!\left[-\tfrac{1}{2}\,(y-A(f+x))^\T N^{-1}(y-A(f+x))\right],
+\end{equation}
+with $N$ the noise covariance, and the posterior of interest factorises as
+\begin{align}
+    p(x,f\mid y) \;\propto\; p(y\mid x,f)\,p(x)\,p(f).
+\end{align}
+Component separation thus requires (i) a tractable likelihood, which is fixed once the instrumental pipeline and noise model are specified, and (ii) data-driven priors $p(x)$ and $p(f)$, which we learn from realistic simulations. We train two independent U-Net models to parametrise vector fields $u^\theta_t$ that generate probability paths from a simple Gaussian base distribution to each prior, and we sample those priors by integrating the corresponding ODE/SDE \cite{lipman2023flowmatching}. Posterior sampling is then obtained by augmenting the prior sampler with likelihood gradients $\nabla_x \log p(y\mid x,f)$ and $\nabla_f \log p(y\mid x,f)$ during integration; this is the only stage at which the observed CMB data $y$ enters the inference.
+
+We work at a single frequency, $143\ \mathrm{GHz}$, using Planck NPIPE / PR4 half-ring maps as the observed sky $y$ and the publicly released $143\ \mathrm{GHz}$ confidence mask as $A$'s sky cut \cite{planck2018overview}. Theoretical CMB spectra are computed with CAMB \cite{lewis2000camb} for a fiducial $\Lambda$CDM cosmology and used to draw Gaussian $f$-priors that share the same effective beam, pixel window, and sky footprint as the observations \cite{sullivan2024methods}. Galactic foreground priors are obtained from PySM\,3 \cite{thorne2017pysm,zonca2021pysm3}, which provides full-sky $(I,Q,U)$ simulations of dust and synchrotron emission consistent with Planck data products. All maps are processed in the HEALPix pixelisation \cite{gorski2005,zonca2019healpy} and the diffusion model is trained on flat-sky $64\times 64$ patches obtained by gnomonic projection.
+
+The scientific motivation is twofold. First, by learning $p(f)$ and $p(x)$ from data we obtain priors that capture non-Gaussian morphology that simple parametric models cannot represent, in particular for Galactic foregrounds. Second, the resulting posterior sampler outputs an ensemble of plausible component maps consistent with the data, providing both a point estimate of $(x,f)$ and a calibrated uncertainty on it. This is a prerequisite for unbiased downstream cosmological inference, including the search for primordial $B$-modes for which residual foreground contamination is the dominant systematic.
+
+
+
+
+\section{Idealized CMB Power Spectra}
+
+We briefly review the spherical-harmonic description of CMB temperature and polarisation anisotropies, since this is the natural language in which our priors are constructed and validated. A more pedagogical exposition can be found in Refs.~\cite{scott2024pdg,sullivan2024methods,gorski2005}.
+
+The CMB temperature anisotropy is a scalar field on the sphere and is therefore naturally expanded in spherical harmonics \cite{zaldarriaga1997,gorski2005,scott2024pdg}:
+\begin{equation}
+  T(\hat n) = \sum_{\ell=0}^\infty \sum_{m=-\ell}^{\ell} a_{\ell m}^T\,Y_{\ell m}(\hat n).
+\end{equation}
+From the orthonormality of the spherical-harmonics
+\begin{equation}
+  \int_{\mathbb S^2} Y_{\ell m}(\hat n)\,Y_{\ell' m'}^\ast(\hat n)\,\dd\Omega
+  =
+  \delta_{\ell\ell'}\delta_{mm'},
+\end{equation}
+the harmonic coefficients are obtained by
+\begin{equation}
+  a_{\ell m}^T
+  =
+  \int_{\mathbb S^2} T(\hat n)\,Y_{\ell m}^\ast(\hat n)\,\dd\Omega.
+\end{equation}
+The coefficient \(a_{\ell m}^T\) is therefore the amplitude with which the angular pattern \(Y_{\ell m}\) appears in the sky, and in a statistically isotropic theory the spherical-harmonic basis is preferred because two-point statistics become diagonal in \((\ell,m)\). The multipole \(\ell\) controls angular scale through the rough correspondence
+\begin{equation}
+  \theta \sim \frac{\pi}{\ell},
+\end{equation}
+so small \(\ell\) corresponds to large coherent angular structures and large \(\ell\) to fine structure; the azimuthal index \(m\) resolves the angular dependence within a fixed \(\ell\).
+
+CMB polarisation is described by the Stokes parameters \(Q\) and \(U\) defined relative to a chosen local basis on the sphere: \(Q\) measures the linear polarisation aligned with the basis (up/down minus left/right), and \(U\) the same quantity rotated by \(45^\circ\). Unlike \(T\), the pair \((Q,U)\) is not a scalar but transforms as a \emph{spin-\(\pm 2\)} field under local rotations of the basis, and its natural harmonic expansion uses spin-weighted spherical harmonics \cite{zaldarriaga1997,kamionkowski1997,sullivan2024methods}:
+\begin{equation}
+  (Q \pm iU)(\hat n)
+  =
+  \sum_{\ell m}
+  a_{\ell m}^{\pm 2}\,{}_{\pm 2}Y_{\ell m}(\hat n),
+\end{equation}
+with coefficients obtained by projection,
+\begin{equation}
+  a_{\ell m}^{\pm 2}
+  =
+  \int_{\mathbb S^2}
+  (Q\pm iU)(\hat n)\,{}_{\pm 2}Y_{\ell m}^\ast(\hat n)\,\dd\Omega.
+\end{equation}
+The scalar \(E\)- and pseudo-scalar \(B\)-mode coefficients are defined by \cite{zaldarriaga1997,kamionkowski1997}
+\begin{equation}
+  a_{\ell m}^E = -\frac12\left(a_{\ell m}^{2}+a_{\ell m}^{-2}\right),
+  \qquad
+  a_{\ell m}^B = \frac{i}{2}\left(a_{\ell m}^{2}-a_{\ell m}^{-2}\right).
+\end{equation}
+\(E\) is the curl-free, parity-even component of the polarisation and \(B\) the divergence-free, parity-odd component. The decomposition is local in harmonic space but non-local in pixel space, so finite sky coverage induces \(E\)/\(B\) mode mixing in any flat-sky or masked estimator.
+
+For a statistically isotropic Gaussian CMB, the harmonic coefficients satisfy
+\begin{equation}
+  \EE\!\left[a_{\ell m}^X\,(a_{\ell' m'}^Y)^\ast\right]
+  =
+  C_\ell^{XY}\,\delta_{\ell\ell'}\delta_{mm'},
+  \qquad
+  X,Y\in\{T,E,B\}
+\end{equation}
+and all statistical information is contained in the covariance matrix at each \(\ell\):
+\begin{equation}
+  \Sigma_\ell
+  =
+  \begin{pmatrix}
+    C_\ell^{TT} & C_\ell^{TE} & 0\\
+    C_\ell^{TE} & C_\ell^{EE} & 0\\
+    0 & 0 & C_\ell^{BB}
+  \end{pmatrix}.
+\end{equation}
+
+We can compute two-point functions in terms of the ${C^{XY}_\ell}$ coefficients. The full temperature two-point function for instance is:
+\begin{align}
+  \xi_T(\hat n,\hat n')
+  &:= \EE[T(\hat n)T(\hat n')] \\ \nonumber
+  &= \EE\!\left[
+    \sum_{\ell m} a_{\ell m}^T Y_{\ell m}(\hat n)
+    \sum_{\ell' m'} (a_{\ell' m'}^T)^\ast Y_{\ell' m'}^\ast(\hat n')
+  \right] \\ \nonumber
+  &= \sum_{\ell m}\sum_{\ell' m'}
+     \EE[a_{\ell m}^T(a_{\ell' m'}^T)^\ast]\,
+     Y_{\ell m}(\hat n)Y_{\ell' m'}^\ast(\hat n') \nonumber \\
+  & = \sum_{\ell=0}^\infty C_\ell^{TT}
+  \sum_{m=-\ell}^{\ell} Y_{\ell m}(\hat n)Y_{\ell m}^\ast(\hat n') \nonumber \\
+  & =
+  \sum_{\ell=0}^\infty \frac{2\ell+1}{4\pi} C_\ell^{TT}
+  P_\ell(\hat n\!\cdot\!\hat n').
+\end{align}
+where we used
+\begin{equation}
+  \sum_{m=-\ell}^{\ell} Y_{\ell m}(\hat n)Y_{\ell m}^\ast(\hat n')
+  =
+  \frac{2\ell+1}{4\pi}P_\ell(\hat n\!\cdot\!\hat n').
+\end{equation}
+
+
+
+Instead of $C_\ell^{XY}$ it is common to plot
+\begin{equation}
+  D_\ell^{XY} \equiv \frac{\ell(\ell+1)}{2\pi}\, C_\ell^{XY},
+\end{equation}
+which is visually more informative because the prefactor \(\ell(\ell+1)\) roughly cancels the leading \(\ell^{-2}\) decline of an approximately scale-invariant \(C_\ell\) and makes the acoustic peaks easier to see \cite{sullivan2024methods}.
+
+In the large-\(\ell\) limit, \(D_\ell^{TT}\) admits a clean physical interpretation as the temperature variance per logarithmic \(\ell\)-interval. Setting \(\hat n'=\hat n\) in the two-point function and using \(P_\ell(1)=1\), we have
+\begin{equation}
+  \Var[T(\hat n)]
+  =
+  \sum_{\ell=0}^\infty \frac{2\ell+1}{4\pi} C_\ell^{TT}.
+\end{equation}
+For \(\ell \gg 1\), approximate the sum by an integral and use \(2\ell+1\simeq 2\ell\):
+\begin{align}
+  \Var[T(\hat n)]
+  & \simeq \int_0^\infty \frac{\ell\,C_\ell^{TT}}{2\pi}\,\dd\ell
+    = \int_0^\infty \frac{\ell^2\, C_\ell^{TT}}{2\pi}\,\dd\ln\ell \\
+  & \simeq \int_0^\infty \frac{\ell(\ell+1)\, C_\ell^{TT}}{2\pi}\,\dd\ln\ell
+    = \int_0^\infty D_\ell^{TT}\,\dd\ln\ell. \nonumber
+\end{align}
+The same argument applies to \(D_\ell^{EE}\) and \(D_\ell^{BB}\), so the four spectra \(\{D_\ell^{TT},D_\ell^{EE},D_\ell^{BB},D_\ell^{TE}\}\) provide an interpretable, scale-resolved summary of the second-order statistics of the Gaussian CMB.
+
+\paragraph{Cosmic variance.} Even with a perfect noiseless full-sky map, the empirical estimator $\widehat C_\ell^{XY}$ has an irreducible variance \cite{scott2024pdg,sullivan2024methods}
+\begin{equation}
+  \Var\!\left[\widehat C_\ell^{XY}\right]
+  = \frac{1}{2\ell+1}\!\left[C_\ell^{XX}\,C_\ell^{YY} + (C_\ell^{XY})^2\right],
+\end{equation}
+which arises from the finite number $(2\ell+1)$ of independent $m$-modes available at each multipole. This sets a fundamental floor for the precision with which any model, including the present one, can be tested at a given $\ell$, and is largest at low $\ell$. On a fraction $f_{\rm sky}$ of the sky, the variance is enlarged by approximately $1/f_{\rm sky}$, defining the so-called \emph{sample variance} regime relevant to masked analyses \cite{sullivan2024methods}.
+
+
+
+\section{Realistic CMB Power Spectra}
+\label{sec:realistic_spectra}
+In practice the idealised description above must be modified to reflect (i) finite-resolution map representations, (ii) instrumental smoothing by the telescope beam, (iii) angular averaging into pixels, (iv) sky cuts that null contaminated regions, and (v) the geometry of patch-based analyses. We summarise here the formalism associated with each of these effects in general terms, independent of any particular data set or simulation; the concrete numerical choices, instrumental parameters, and software implementations adopted in this work are deferred to Sec.~\ref{sec:data}. The presentation closely follows the conventions of Refs.~\cite{gorski2005,sullivan2024methods,scott2024pdg}.
+
+\subsection{HEALPix pixelisation}
+\label{sec:healpix}
+
+We adopt the HEALPix scheme \cite{gorski2005,zonca2019healpy} as the all-sky pixelisation throughout. A HEALPix map discretises the sphere into pixels of \emph{equal area} arranged on isolatitude rings, controlled by a single resolution parameter \(N_{\rm side}\) (a power of two). The number of pixels and the pixel angular size are
+\begin{equation}
+  N_{\rm pix} = 12\,N_{\rm side}^2,
+  \qquad
+  \theta_r = \sqrt{\frac{4\pi}{N_{\rm pix}}}
+           = \sqrt{\frac{\pi}{3\,N_{\rm side}^2}},
+  \label{eq:healpix_nside}
+\end{equation}
+where \(\theta_r\) is the side-length of a pixel in radians \cite{gorski2005,sullivan2024methods}. Equal-area pixels permit the spherical-harmonic transform to be computed by a single ring-by-ring quadrature without per-pixel weighting, and allow second-order statistics to be averaged uniformly across the sky. HEALPix maps may be stored in either ``RING'' or ``NESTED'' ordering; the spherical-harmonic transforms used below assume the RING convention, which is the default for most CMB data products and software \cite{gorski2005}.
+
+\subsection{Band-limit and downgrading}
+\label{sec:downgrade}
+
+A continuous field on the sphere admits a spherical-harmonic expansion up to \(\ell_{\max}=\infty\). A HEALPix map is intrinsically discrete and therefore band-limited; following standard practice one adopts
+\begin{equation}
+  \ell_{\max} = 3\,N_{\rm side} - 1,
+\end{equation}
+above which the spherical-harmonic transform is no longer reliable due to aliasing of unresolved structure into the represented modes \cite{gorski2005,sullivan2024methods}. Ref.~\cite{sullivan2024methods} also recommends the more conservative choice \(\ell_{\max}=2\,N_{\rm side}\) when transitioning between resolutions, an inequality that is essentially saturated whenever the beam suppression at the upper end of the represented multipole range is severe.
+
+\paragraph{Harmonic-space downgrading.} Bringing a map from a high input resolution \(N_{\rm side}^{\rm in}\) to a lower target resolution \(N_{\rm side}^{\rm out}\) is conceptually a band-limit followed by a resampling. The recommended procedure \cite{sullivan2024methods} is to perform the downgrade entirely in harmonic space rather than through pixel-space averaging, because pixel-space routines such as \texttt{ud\_grade} implicitly convolve with the new pixel window and, more importantly, treat \(Q\) and \(U\) as scalars, breaking the spin-2 transformation law of polarisation and producing biased \(E\)/\(B\) power. Concretely, one
+\begin{enumerate}[leftmargin=2.0em]
+  \item computes polarised harmonic coefficients \((a_{\ell m}^T,a_{\ell m}^E,a_{\ell m}^B)\) of the input map up to
+  \begin{equation}
+    \ell_{\max}^{\rm in} = \min(3\,N_{\rm side}^{\rm in}-1,\ \ell_{\max}^{\rm out}),
+  \end{equation}
+  i.e.~explicitly nulls all multipoles above the target band-limit, as required when synthesising at the lower \(N_{\rm side}\) \cite{sullivan2024methods};
+  \item rescales the harmonic coefficients to the desired output beam and pixel window, $a_{\ell m}^{\rm out} = (B_\ell^{\rm out}P_\ell^{\rm out})/(B_\ell^{\rm in}P_\ell^{\rm in})\,a_{\ell m}^{\rm in}$ (the Sullivan--Hergt--Scott downgrading recipe \cite{sullivan2024methods}), where \(B_\ell\) is the beam transfer function of Sec.~\ref{sec:beam} and \(P_\ell\) is the HEALPix pixel-window function of Sec.~\ref{sec:pixwin};
+  \item synthesises the output \((T,Q,U)\) maps at \(N_{\rm side}^{\rm out}\) using the rescaled coefficients.
+\end{enumerate}
+When the input pixel window is sufficiently close to unity in the represented multipole range the second factor reduces to a pure beam rescaling, $a_{\ell m}^{\rm out}\!=\!(B_\ell^{\rm out}/B_\ell^{\rm in})\,a_{\ell m}^{\rm in}$; this approximation should be checked rather than assumed.
+
+
+
+\subsection{Beam}
+\label{sec:beam}
+
+The optics of any real CMB telescope smear the underlying sky with a finite-width beam, which we model as a circular Gaussian of full-width-half-maximum \(\theta_{\rm FWHM}\) and Gaussian width \(\sigma\) related by \cite{sullivan2024methods}
+\begin{equation}
+  \sigma = \frac{\theta_{\rm FWHM}}{\sqrt{8\ln 2}}.
+\end{equation}
+For an azimuthally symmetric beam, real-space convolution becomes multiplication in harmonic space, with the scalar transfer function
+\begin{equation}
+  B_\ell = \exp\!\left[-\tfrac{1}{2}\,\ell(\ell+1)\,\sigma^2\right],
+  \label{eq:beam_Bl}
+\end{equation}
+so that observed temperature spectra are damped at high \(\ell\) according to
+\begin{equation}
+  C_\ell^{TT,\,\rm obs} = B_\ell^2\, C_\ell^{TT}.
+\end{equation}
+This is the same $B_\ell$ that appears in the harmonic downgrading formula of Sec.~\ref{sec:downgrade} and in the combined transfer-function model of Sec.~\ref{sec:pixwin} (Eq.~\ref{eq:obs_spectrum}).
+Polarisation, being a spin-2 field, picks up a small additional correction \cite{challinor2000beam,sullivan2024methods}: the polarised beam is approximately \({}_2 B_\ell = B_\ell\,e^{2\sigma^2}\). At sub-degree resolution this correction is exponentially suppressed and the scalar form (\ref{eq:beam_Bl}) is sufficient for both temperature and polarisation; we adopt this approximation in all subsequent expressions.
+
+When data and simulations must be combined coherently, all maps should be brought to a common effective beam. If a map carries an input beam of FWHM \(\theta_{\rm in}\) and the target resolution is \(\theta_{\rm out}\geq\theta_{\rm in}\), this is achieved by multiplying its harmonic coefficients by the residual Gaussian
+\begin{equation}
+  B_\ell^{\rm add}
+  = \exp\!\left[-\tfrac{1}{2}\,\ell(\ell+1)\,\sigma_{\rm add}^2\right],
+  \qquad
+  \sigma_{\rm add} = \tfrac{1}{\sqrt{8\ln 2}}\sqrt{\theta_{\rm out}^2-\theta_{\rm in}^2}.
+  \label{eq:beam_residual}
+\end{equation}
+Enforcing \(\theta_{\rm out}\geq\theta_{\rm in}\) keeps the operation purely additional smoothing, with no deconvolution and therefore no noise amplification at high \(\ell\). Bringing the data and the prior simulations to a single, well-defined effective resolution is essential for any likelihood-based component-separation analysis, where the residual \(y - A(f+x)\) of the forward model in Sec.~1 must live at a common resolution \cite{sullivan2024methods}.
+
+\subsection{Pixel window}
+\label{sec:pixwin}
+
+Beam smoothing accounts for the optical blur of the telescope; \emph{pixelisation} introduces an additional, distinct angular smoothing that arises from averaging the sky over the area of each pixel \cite{sullivan2024methods}. Working at fixed \(N_{\rm side}\), the corresponding harmonic transfer function \(P_\ell^{N_{\rm side}}\) is provided by HEALPix \cite{gorski2005} and is well approximated at moderate \(\ell\) by a sinc,
+\begin{equation}
+  P_\ell^{\rm sinc}
+  = \mathrm{sinc}\!\left(\frac{\ell\,\theta_r}{2\pi}\right),
+\end{equation}
+where \(\theta_r\) is the pixel size from Eq.~(\ref{eq:healpix_nside}). The full HEALPix function is computed by spherical-harmonic transform of an average pixel for \(N_{\rm side}\leq 128\) and extrapolated by a top-hat approximation at larger \(N_{\rm side}\) \cite{gorski2005}. Combining beam and pixel-window contributions, the model for an observed power spectrum becomes
+\begin{equation}
+  C_\ell^{\rm obs}
+  = P_\ell^2\,B_\ell^2\,C_\ell^{\rm true}.
+  \label{eq:obs_spectrum}
+\end{equation}
+Here $B_\ell$ is the Gaussian beam transfer function of Sec.~\ref{sec:beam} (Eq.~\ref{eq:beam_Bl}) and $P_\ell \equiv P_\ell^{N_{\rm side}}$ is the HEALPix pixel-window function defined above; both operators also appear explicitly in the harmonic downgrading formula of Sec.~\ref{sec:downgrade}. HEALPix \cite{gorski2005} provides separate pixel windows $P_\ell^T$ and $P_\ell^P$ for scalar and spin-2 fields, and a careful analysis applies the appropriate one to $a_{\ell m}^T$ and to $\{a_{\ell m}^E,a_{\ell m}^B\}$ respectively. The relative magnitudes of $B_\ell$ and $P_\ell$ depend on the specific beam and resolution chosen; in regimes where the beam smoothing dominates, the pixel-window correction can be subdominant but is rarely negligible at the highest represented multipoles \cite{sullivan2024methods}, and should be evaluated quantitatively before being neglected.
+
+\subsection{Masking}
+\label{sec:masking}
+
+The Galactic plane and bright extragalactic point sources contaminate the CMB at all frequencies, and any analysis on real data must restrict itself to a sufficiently clean fraction of the sky \cite{planck2018overview,sullivan2024methods}. This is encoded by a sky mask $M(\hat n)\in[0,1]$, typically a HEALPix map at the resolution of the data, where $M=1$ flags pixels retained by the analysis and $M<1$ flags partially or fully contaminated regions. When the mask is provided at higher resolution than the analysis pixelisation, it is downgraded with a scalar pixel-space averaging (\texttt{ud\_grade}) -- legitimate here because $M$ is a scalar weighting and not a spin field -- and typically thresholded above some fraction $M_{\rm min}\!\in\![0,1]$ to enforce a deterministic clean-sky/contaminated dichotomy.
+
+The choice of how to combine the mask with the power-spectrum estimator is non-trivial. A naive multiplication \(\tilde T = M\,T\) followed by a full-sky harmonic transform biases all spectra by approximately a factor of the unmasked sky fraction
+\begin{equation}
+  f_{\rm sky}
+  = \frac{1}{N_{\rm pix}}\sum_{i=1}^{N_{\rm pix}} M_i^2,
+\end{equation}
+and additionally couples power across multipoles, leading to ringing and large biases especially for \(EE\)/\(BB\) where the much weaker polarisation signal sits underneath leakage from the masked-out regions. State-of-the-art alternatives include the pseudo-\(C_\ell\) \texttt{MASTER} estimator \cite{hivon2002master} as implemented in \texttt{NaMaster} \cite{alonso2023namaster}, and quasi-maximum-likelihood estimators for the lowest \(\ell\) \cite{sullivan2024methods}.
+
+A simpler alternative, applicable to patch-based analyses (Sec.~\ref{sec:flatsky}), is to bypass pseudo-\(C_\ell\) altogether by restricting attention to fully-clean patches: candidate patch \emph{centres} are drawn from $\{i:M_i\geq M_{\rm min}\}$ and any candidate whose projected footprint contains a pixel with $M<M_{\rm min}$ is rejected. The retained ensemble is then effectively unmasked, and the flat-sky FFT-based spectral estimators of Sec.~\ref{sec:flatsky} are not biased by mode-coupling. The cost is a non-trivial reduction of usable sky and a small mask-induced bias in the patch ensemble's prior over sky position, both of which are easy to quantify directly. Apodising the mask before per-patch acceptance and computing pseudo-\(C_\ell\) on each patch with \texttt{NaMaster} \cite{alonso2023namaster} would relax the acceptance criterion and recover usable sky in the partially apodised border regions, at the price of restoring a small mode-coupling correction.
+
+
+\subsection{Flat-sky projection and patch spectra}
+\label{sec:flatsky}
+
+When a generative model or any other translation-invariant learner is trained on small angular regions rather than full-sky maps, the natural data representation is a flat two-dimensional patch. The angular size of a patch is small enough that curvature corrections are subdominant, while still being large enough to resolve the multipoles of interest, so spherical-harmonic operators can be replaced by translation-invariant 2D Fourier operators at the price of a controlled approximation error.
+
+A patch is obtained by a \emph{gnomonic} (tangent-plane) projection of the underlying HEALPix map onto a square grid of $N_{\rm patch}\times N_{\rm patch}$ pixels at angular sampling $\theta_{\rm patch}$, centred on a chosen sky direction $\hat n_0$, with linear extent
+\begin{equation}
+  L = N_{\rm patch}\,\theta_{\rm patch}.
+\end{equation}
+For $L\!\lesssim\!10^\circ$, curvature corrections to the spherical metric are of order $L^2\!\sim\!\mathrm{few}\times 10^{-2}$ and the flat-sky approximation is quantitatively accurate \cite{sullivan2024methods,seljak1997}. The temperature channel is resampled by simple scalar interpolation (e.g.~\texttt{healpy.projector.GnomonicProj}). For polarisation, however, a naive scalar resampling of \(Q\) and \(U\) is incorrect: under the change of basis induced by the projection, \((Q,U)\) acquires a position-dependent rotation by an angle \(\psi(\hat n)\), and a \emph{spin-2 rotation}
+\begin{equation}
+  \begin{pmatrix} Q' \\ U' \end{pmatrix}
+  =
+  \begin{pmatrix} \cos 2\psi & \sin 2\psi \\ -\sin 2\psi & \cos 2\psi \end{pmatrix}
+  \begin{pmatrix} Q \\ U \end{pmatrix}
+\end{equation}
+must be applied at each pixel \cite{kamionkowski1997,seljak1997}. The angle \(\psi(\hat n)\) can be computed analytically or numerically by finite-differencing the projection along the local north direction. Without this rotation, $E$ and $B$ constructed from the patch FFT contain a spurious geometric mixing of the two parities that biases polarised spectra, especially in $BB$ where the signal is intrinsically smaller.
+
+On each patch one estimates spectra via the flat-sky power spectrum estimator \cite{seljak1997,sullivan2024methods}: for an angular footprint of side \(L\) and pixel size $\theta_{\rm patch}$, the discrete two-dimensional Fourier modes are
+\begin{equation}
+  \bm{\ell} = 2\pi\,\bm{k},
+  \qquad
+  \bm{k} = \left(\frac{n_x}{L},\frac{n_y}{L}\right)\,\mathrm{rad}^{-1},
+  \qquad n_x,n_y\in\mathbb{Z},
+\end{equation}
+and the spin-2 field decomposes into flat-sky $E$/$B$ via
+\begin{equation}
+  \tilde E(\bm{\ell}) = -\tilde Q(\bm{\ell})\cos 2\phi_\ell - \tilde U(\bm{\ell})\sin 2\phi_\ell,
+  \qquad
+  \tilde B(\bm{\ell}) =  \tilde Q(\bm{\ell})\sin 2\phi_\ell - \tilde U(\bm{\ell})\cos 2\phi_\ell,
+\end{equation}
+where \(\phi_\ell\) is the angle of \(\bm{\ell}\) in the patch frame \cite{kamionkowski1997,seljak1997}. The estimator
+\begin{equation}
+  \widehat C_\ell^{XY}
+  = \frac{\theta_{\rm patch}^{\,2}}{N_{\rm patch}^{\,2}}
+    \big\langle\, \tilde X(\bm{\ell})\,\tilde Y^\ast(\bm{\ell})\,\big\rangle_{|\bm{\ell}|\in\Delta\ell}
+  \label{eq:flatsky_estimator}
+\end{equation}
+averages cross-products in annular bins of \(|\bm{\ell}|\) \cite{sullivan2024methods}, where the angular range is bounded from below by the fundamental mode $\ell_{\rm min}\!\simeq\!2\pi/L$ and from above by the Nyquist multipole $\ell_{\rm max}\!\simeq\!\pi/\theta_{\rm patch}$. When patch centres are restricted to clean sky and full-patch validity is enforced (Sec.~\ref{sec:masking}), no apodisation or pseudo-\(C_\ell\) correction is required at the patch level; the mode-coupling matrix reduces to the flat-sky identity for an isolated, fully-unmasked patch, and the bias for $f_{\rm sky}^{\rm patch}=1$ is negligible.
+
+\subsection{Patch-level standardisation}
+\label{sec:normalisation}
+
+Independently of the spherical-harmonic formalism, training a generative model requires that the input fields have well-conditioned numerical scales. Raw $T$, $Q$, $U$ patches in $\mu\mathrm{K}_{\rm CMB}$ have very different per-channel variances ($\sigma_T \gg \sigma_{Q,U}$ at intermediate frequencies, where the temperature acoustic peaks dominate over the polarised signal), which would force a generative model to learn this trivial scale hierarchy at the cost of higher-order structure and can induce unstable training near schedule endpoints \cite{ho2020ddpm,heurtel2023dust}. A standard remedy is the deterministic per-channel standardisation
+\begin{equation}
+  \tilde X_c(\bm{x}) = \frac{X_c(\bm{x})-\mu_c}{\sigma_c},
+  \qquad
+  c\in\{T,Q,U\},
+\end{equation}
+where $\mu_c$ and $\sigma_c$ are computed once on the training split only and then applied verbatim to any held-out splits. The generator is trained on $\tilde X$; at inference time samples are de-normalised by inverting this transformation before computing physical-units diagnostics. The procedure is lossless in the sense that a perfect generator of $p(\tilde X)$ yields a perfect generator of $p(X)$; it does mean, however, that intermediate spectra plotted in normalised units are scale-rescaled versions of the physical $C_\ell$, and the two domains must be distinguished explicitly in any diagnostic.
+
+\subsection{Sum--difference noise estimates from independent splits}
+\label{sec:halfring}
+
+Modern CMB experiments commonly deliver pairs of independent map-level splits constructed from disjoint subsets of the time-ordered data, e.g.\ half-mission, half-ring, or odd/even-detector splits. Given two such splits $h_1$ and $h_2$ of an observed sky, one forms the standard sum and difference combinations
+\begin{equation}
+  y = \tfrac{1}{2}(h_1 + h_2),
+  \qquad
+  d = \tfrac{1}{2}(h_1 - h_2).
+\end{equation}
+Under the assumption that the sky signal is identical in both halves and the noise is independent between them, $y$ retains the full sky signal and approximately half the noise power, while $d$ is a sky-signal-free realisation of the noise on the map. The map $y$ is therefore the natural observable on which to base inference, while $d$ provides a model-independent diagnostic of the instrumental noise: its empirical variance estimates the diagonal of the per-pixel noise covariance, its auto-spectrum estimates the noise power spectrum $N_\ell$, and its lack of cross-correlation with any clean simulation of the sky provides a sanity check on the split assumption.
+
+
+
+
+\section{Data}
+\label{sec:data}
+
+This section instantiates the general formalism of Sec.~\ref{sec:realistic_spectra} on the three data products fed to the prior-learning pipeline: the observed Planck $143\,\mathrm{GHz}$ sky $y$, the simulated lensed-CMB prior $p(f)$, and the simulated Galactic-foreground prior $p(x)$. We work at a single observing frequency, $143\,\mathrm{GHz}$, where the $143\,\mathrm{GHz}$ channel of Planck has favourable signal-to-noise on the CMB and where the Galactic-foreground contamination is dominated by a narrow set of components (thermal dust and synchrotron) for which standard simulators exist. All maps are stored in HEALPix \texttt{RING} ordering and in $\mu\mathrm{K}_{\rm CMB}$ throughout.
+
+\paragraph{Common processing parameters.}
+By construction all three products live in the same numerical and angular domain (Table~\ref{tab:processing_params} summarises the choices). We adopt:
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item HEALPix resolution $N_{\rm side}=512$, corresponding to $N_{\rm pix}=12N_{\rm side}^2=3{,}145{,}728$ pixels and a pixel scale $\theta_r\simeq 6.87'$ (Sec.~\ref{sec:healpix}). This is the lowest power-of-two $N_{\rm side}$ that comfortably band-limits maps smoothed to the target $10'$ beam, while keeping the cost of training a U-Net on patches manageable.
+  \item Harmonic cutoff $\ell_{\max}=3N_{\rm side}-1=1535$ in all spherical-harmonic transforms (Sec.~\ref{sec:downgrade}).
+  \item Common effective beam: a circular Gaussian of FWHM $\theta_{\rm out}=10'$ applied to all three products via Eq.~(\ref{eq:beam_Bl}) (Sec.~\ref{sec:beam}). This common-beam choice is what makes the data and the prior simulations harmonically compatible.
+  \item Pixel windows: the polarisation-aware HEALPix windows $P_\ell^{T}$ and $P_\ell^{P}$ at $N_{\rm side}=512$ are applied to the simulated priors (Sec.~\ref{sec:pixwin}). At this configuration $P_\ell^{T,P}$ contributes at most an extra $\sim 8\%$ damping at $\ell=\ell_{\max}$ relative to the beam alone. Pixel-window deconvolution is not applied to the observed maps; the corresponding mismatch is bounded by the input pixel-window correction at $N_{\rm side}^{\rm in}=2048$, $\lesssim 0.3\%$ over the represented multipole range.
+  \item Common sky mask: the public Planck $143\,\mathrm{GHz}$ confidence mask $M(\hat n)$, downgraded to $N_{\rm side}=512$ with \texttt{healpy.ud\_grade} and thresholded at $M_{\rm min}=0.9$ to define the clean-sky footprint (Sec.~\ref{sec:masking}).
+  \item Patch geometry: square $N_{\rm patch}\!\times\!N_{\rm patch}=64\!\times\!64$ flat-sky patches obtained by gnomonic projection at angular sampling $\theta_{\rm patch}=6.7'$/pixel, giving a linear extent
+  \begin{equation}
+    L = N_{\rm patch}\,\theta_{\rm patch}\simeq 7.15^\circ
+    \quad\Rightarrow\quad
+    L^2\simeq 51\ \mathrm{deg}^2,
+  \end{equation}
+  i.e.\ $f_{\rm sky}^{\rm patch}\simeq 0.12\%$ per patch. Curvature corrections are of order $L^2\!\sim\!1.5\times 10^{-2}$ and the flat-sky approximation is accurate. Patch projection is implemented by \texttt{healpy.projector.GnomonicProj}: the temperature channel is resampled by scalar interpolation, while $(Q,U)$ are first resampled and then spin-2 rotated to the local patch frame using Eq.~(\ref{eq:flatsky_estimator})\,'s spin-2 matrix, with rotation angle $\psi(\hat n)$ computed numerically by finite-differencing the projection along the local north direction (function \texttt{\_project\_patch\_tqu}, flag \texttt{rotate\_pol=True}; Sec.~\ref{sec:flatsky}). Non-finite values introduced at projection edges are explicitly replaced by zero.
+  \item Patch-centre selection and full-patch validity: candidate centres are drawn from the set $\{i:M_i\geq 0.9\}$ at $N_{\rm side}=512$. For each candidate, the mask is itself first projected onto the same $64\!\times\!64$ gnomonic grid (function \texttt{\_project\_patch\_scalar}), and the candidate is rejected unless every pixel of the projected footprint satisfies $M\!\geq\!0.9$ (function \texttt{\_extract\_random\_patches}). This produces an ensemble of effectively unmasked patches at the cost of a non-trivial reduction of usable sky, with an empirically observed acceptance rate of order $50$--$60\%$ at $N_{\rm side}=512$ for the $143\,\mathrm{GHz}$ mask. A target of $N_{\rm patches/map}$ patches is collected per full-sky realisation via rejection sampling, with a hard cap of $40\,N_{\rm patches/map}$ attempts before raising an error.
+  \item Splits and standardisation: the concatenated patch array is shuffled with a fixed seed, split $90/10$ into training and validation sets, and per-channel statistics $\mu_c,\sigma_c$ ($c\in\{T,Q,U\}$) are computed once on the training split only and applied verbatim to the validation split (function \texttt{\_split\_and\_normalize}; Sec.~\ref{sec:normalisation}). To guard against degenerate channels, $\sigma_c$ is floored at $10^{-6}$ before inversion.
+  \item Bandpower binning: when validating a learned prior with the flat-sky estimator (\ref{eq:flatsky_estimator}), we bin into $\sim 30$ linear or log-spaced annuli of $|\bm\ell|$ between $\ell_{\rm min}\simeq 2\pi/L\approx 50$ and $\ell_{\rm max}\simeq \pi/\theta_{\rm patch}\approx 1500$.
+\end{itemize}
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{ll}
+    \toprule
+    Parameter & Value \\
+    \midrule
+    HEALPix resolution $N_{\rm side}$ & $512$ \\
+    Harmonic cutoff $\ell_{\max}$ & $1535$ \\
+    Common effective beam $\theta_{\rm FWHM}$ & $10'$ Gaussian \\
+    Frequency & $143\,\mathrm{GHz}$ \\
+    Sky mask & Planck $143\,\mathrm{GHz}$ confidence, $M\geq 0.9$ \\
+    Patch grid & $64\times 64$ \\
+    Patch sampling $\theta_{\rm patch}$ & $6.7'$/pixel \\
+    Patch extent $L$ & $\simeq 7.15^\circ$ ($\simeq 51\,\mathrm{deg}^2$) \\
+    Train/val split & $90/10$ \\
+    Bandpower bins & $\sim 30$, $\ell\in[50,1500]$ \\
+    Units & $\mu\mathrm{K}_{\rm CMB}$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Summary of common processing parameters used uniformly for the observed sky $y$, the simulated CMB prior $p(f)$ (Sec.~\ref{sec:data_prior_f}), and the simulated foreground prior $p(x)$ (Sec.~\ref{sec:data_prior_x}).}
+  \label{tab:processing_params}
+\end{table}
+
+The remainder of this section documents the product-specific processing on top of these common conventions: the Planck half-ring preprocessing (Sec.~\ref{sec:data_obs}), the CAMB-based CMB simulation (Sec.~\ref{sec:data_prior_f}), and the PySM-based foreground simulation (Sec.~\ref{sec:data_prior_x}).
+
+\subsection{Observed CMB data}
+\label{sec:data_obs}
+
+We use the publicly released Planck PR4/NPIPE \cite{planck2018overview} half-ring maps at $143\,\mathrm{GHz}$, $h_1$ and $h_2$, and the corresponding $143\,\mathrm{GHz}$ confidence mask, all distributed as HEALPix \texttt{RING}-ordered FITS files at $N_{\rm side}^{\rm in}=2048$. Each half-ring file contains the three Stokes parameters $(I,Q,U)$ in $\mathrm{K}_{\rm CMB}$.
+
+The two half-ring maps are processed independently by the routine \texttt{preprocess\_pr4\_hr\_to\_nside512}, which implements the harmonic-space ``smooth-and-downgrade'' procedure of Sec.~\ref{sec:downgrade}:
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.1em]
+  \item read $(I,Q,U)$, replace \texttt{HEALPix UNSEEN} sentinels and non-finite values by zero, and rescale by $10^6$ to convert $\mathrm{K}_{\rm CMB}\!\to\!\mu\mathrm{K}_{\rm CMB}$ (units inferred from the FITS \texttt{TUNIT}/\texttt{BUNIT} header or, as a fallback, from the map RMS);
+  \item compute polarised harmonic coefficients $(a^T_{\ell m},a^E_{\ell m},a^B_{\ell m})$ with \texttt{healpy.map2alm} (\texttt{pol=True}, \texttt{iter=3}) up to $\ell_{\max}=3N_{\rm side}-1=1535$;
+  \item multiply each coefficient by the residual Gaussian transfer function
+  \begin{equation}
+    B^{\rm add}_\ell = \exp\!\left[-\tfrac12\,\ell(\ell+1)\,\sigma^2_{\rm add}\right],\qquad
+    \sigma_{\rm add}=\frac{1}{\sqrt{8\ln 2}}\sqrt{\theta_{\rm out}^2-\theta_{\rm in}^2},
+  \end{equation}
+  with $\theta_{\rm in}=7.27'$ and $\theta_{\rm out}=10'$ as in Sec.~\ref{sec:beam};
+  \item synthesise $(T,Q,U)$ at $N_{\rm side}=512$ via \texttt{healpy.alm2map} (\texttt{pol=True}).
+\end{enumerate}
+Pixel-window deconvolution is omitted at this stage, an approximation justified in Sec.~\ref{sec:data}: the input pixel-window correction at $N_{\rm side}^{\rm in}=2048$ is $\lesssim 0.3\%$ throughout the represented multipole range.
+
+From the two preprocessed half-ring maps we form the half-mission-style sum and difference of Sec.~\ref{sec:halfring},
+\begin{equation}
+  y = \tfrac12(h_1+h_2),\qquad d = \tfrac12(h_1-h_2),
+\end{equation}
+and use $y$ as the observed sky entering the likelihood of Sec.~1 and $d$ as a sky-signal-free realisation of the instrumental noise. On the clean-sky footprint defined in Sec.~\ref{sec:data} we verify the expected coherence properties: $h_1$ and $h_2$ are positively correlated pixel-by-pixel in all three Stokes channels; the half-ring difference satisfies $\mathrm{RMS}(d)\!\ll\!\mathrm{RMS}(y)$, with the noise-to-signal RMS ratio of order $10\%$ in $T$ and order $1$ in $Q,U$ at the $10'$ resolution; and the binned cross-spectrum $\widehat C_\ell^{h_1\times h_2}$ tracks the fiducial CMB spectrum (Sec.~\ref{sec:data_prior_f}) across $30\!\le\!\ell\!\le\!\ell_{\max}$ in all four diagonal channels $TT$/$EE$/$BB$/$TE$. These checks fix the data-domain conventions used identically for the two simulated priors below.
+
+\subsection{\texorpdfstring{$p(f)$}{p(f)}: simulated CMB priors}
+\label{sec:data_prior_f}
+
+The CMB prior $p(f)$ is constructed at the level of \emph{maps} that are physically lensed by an independently sampled realisation of the lensing potential $\phi$, rather than by drawing Gaussian fields with the lensed angular power spectrum directly. This sub-section spells out the simulation pipeline, motivates the choice over the simpler Gaussian-from-lensed-$C_\ell$ alternative (which is retained as a legacy/ablation path), and discusses the path towards a fully self-consistent treatment of lensing as an explicit forward-model operator.
+
+\paragraph{Cosmology and CAMB call.}
+We adopt a fiducial flat $\Lambda$CDM cosmology with $H_0=67.5\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$, $\Omega_b h^2=0.022$, $\Omega_c h^2=0.122$, $\sum m_\nu=0.06\,\mathrm{eV}$, $\tau=0.06$, $A_s=2.1\times 10^{-9}$, $n_s=0.965$, $r=0$. A single call to the Boltzmann solver \texttt{CAMB} \cite{lewis2000camb} with \texttt{lens\_potential\_accuracy}$=1$ provides, in $\mu\mathrm{K}^2$ and on the integer grid $L=0,\dots,\ell_{\max}$:
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item the unlensed scalar CMB spectra $\{C_\ell^{TT,\,\rm u},C_\ell^{EE,\,\rm u},C_\ell^{BB,\,\rm u},C_\ell^{TE,\,\rm u}\}$ via \texttt{get\_cmb\_power\_spectra(..., raw\_cl=True)['unlensed\_scalar']}; with $r=0$ the unlensed $C_\ell^{BB,\,\rm u}$ is identically zero;
+  \item the lensing-potential auto-spectrum $C_L^{\phi\phi}$ via \texttt{get\_lens\_potential\_cls(..., raw\_cl=True)[:,0]};
+  \item for diagnostic purposes only, the lensed total spectra $\{C_\ell^{TT},C_\ell^{EE},C_\ell^{BB},C_\ell^{TE}\}$, which provide the analytic 2-point target that the lensed sims must match in expectation.
+\end{itemize}
+The unlensed spectra plus $C_L^{\phi\phi}$ are the only inputs to the lensing pipeline below; the lensed CAMB spectra are retained as a validation target only.
+
+\paragraph{Lensed-map sampler.}
+We use the curved-sky CMB-lensing remapping engine \texttt{lenspyx}~\cite{reinecke2023ducc}, which wraps the high-performance non-uniform spherical-harmonic transforms of \texttt{DUCC} and computes the deflected sky to a user-controlled accuracy with cost essentially equal to two standard pol-aware SHTs. Each independent map realisation in the prior bank is generated by the routine \texttt{simulate\_lensed\_cmb\_tqu\_lenspyx}, which proceeds in five harmonic-space steps:
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.1em]
+  \item \emph{Bandlimits.} Set the lensing-remap bandlimit to $\ell_{\max}=3N_{\rm side}-1=1535$ and zero the unphysical $\ell=0,1$ entries of $C_\ell^{TT,\,\rm u}$, $C_\ell^{EE,\,\rm u}$, $C_\ell^{BB,\,\rm u}$, $C_\ell^{TE,\,\rm u}$, $C_L^{\phi\phi}$ before any sampling.
+  \item \emph{Unlensed primary draw.} Draw a single correlated polarised realisation of the unlensed CMB,
+  \begin{equation}
+    (a^{T,\rm u}_{\ell m},a^{E,\rm u}_{\ell m},a^{B,\rm u}_{\ell m})
+    \sim
+    \mathcal N\!\left(0,
+    \begin{pmatrix}C_\ell^{TT,\,\rm u} & C_\ell^{TE,\,\rm u} & 0\\
+                   C_\ell^{TE,\,\rm u} & C_\ell^{EE,\,\rm u} & 0\\
+                   0 & 0 & C_\ell^{BB,\,\rm u}\end{pmatrix}\right),
+  \end{equation}
+  with \texttt{healpy.synalm} (\texttt{new=True}), exactly as in the legacy Gaussian sampler but with the \emph{unlensed} CAMB spectra.
+  \item \emph{Lensing-potential draw.} Independently draw a Gaussian realisation of the lensing potential,
+  \begin{equation}
+    \phi_{LM}\sim\mathcal N(0,C_L^{\phi\phi}),
+  \end{equation}
+  by a separate \texttt{healpy.synalm} call. The CMB$\times\phi$ cross-spectra $C_L^{\phi T}$ and $C_L^{\phi E}$ are not imposed here, an approximation discussed below.
+  \item \emph{Deflection field.} The gravitational deflection vector is the gradient of $\phi$, $\bm\alpha(\hat n)=\nabla\phi(\hat n)$, with curl-free gradient-mode alm $d_{LM}^{\rm grad}=\sqrt{L(L+1)}\,\phi_{LM}$ (curl-mode $\Omega_{LM}=0$ for scalar lensing). The factor $\sqrt{L(L+1)}$ is precisely the lenspyx convention for the input deflection alm and is applied via \texttt{healpy.almxfl}.
+  \item \emph{Remap onto the deflected sphere.} A single call
+  \begin{center}
+    \texttt{lenspyx.alm2lenmap}$\bigl([a^{T,\rm u},\,a^{E,\rm u},\,a^{B,\rm u}],\,[d^{\rm grad}]\bigr)$
+  \end{center}
+  with \texttt{geometry=('healpix', \{nside: 512\})}, \texttt{pol=True} and \texttt{epsilon}$=10^{-6}$ produces a \emph{truly lensed} $(T_{\rm lens},Q_{\rm lens},U_{\rm lens})$ realisation: the remap is implemented by ducc0 as a pair of non-uniform SHTs that evaluate the unlensed CMB at the deflected positions and rotate $(Q,U)$ by the appropriate spin-2 phase along the deflection direction.
+\end{enumerate}
+The output of step (5) is a HEALPix map at $N_{\rm side}=512$ that carries the full lensing imprint of the sampled $\phi$, not just its diagonal power-spectrum signature. By construction it inherits, in expectation, the lensed CAMB power spectra of step (1), but at the level of an individual realisation it also contains all the lensing-induced non-Gaussian structure: the connected 4-point function (trispectrum) that underpins quadratic CMB-lensing reconstruction, the non-Gaussian texture of lensing $B$-modes generated by $E\!\to\!B$ mode coupling, and the lensing modulation of the small-scale acoustic structure (Sec.~\ref{sec:realistic_spectra}).
+
+\paragraph{Post-lensing instrumental response.}
+The remap is performed at the native unbeamed, unwindowed resolution. The common observational response is then applied to the lensed map in harmonic space, matching the convention used for $y$ in Sec.~\ref{sec:data_obs}:
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.1em]
+  \item compute $(a^T_{\ell m},a^E_{\ell m},a^B_{\ell m})$ of $(T_{\rm lens},Q_{\rm lens},U_{\rm lens})$ via \texttt{healpy.map2alm} (\texttt{pol=True}, \texttt{iter=3});
+  \item multiply by the joint beam-and-pixel-window transfer functions
+  \begin{equation}
+    a_{\ell m}^T \!\to\! B_\ell\,P_\ell^{T}\,a_{\ell m}^T,
+    \qquad
+    a_{\ell m}^{E,B} \!\to\! B_\ell\,P_\ell^{P}\,a_{\ell m}^{E,B},
+  \end{equation}
+  with $B_\ell$ from Eq.~(\ref{eq:beam_Bl}) at $\theta_{\rm FWHM}=10'$ and $P_\ell^{T,P}$ from \texttt{healpy.pixwin($\cdot$, pol=True)};
+  \item synthesise the final $(T,Q,U)$ at $N_{\rm side}=512$ via \texttt{healpy.alm2map} (\texttt{pol=True}).
+\end{enumerate}
+This ordering---lens \emph{first}, beam and pixel-window \emph{after}---is the physically correct one: the beam and the HEALPix pixel window act on the observed (and therefore lensed) sky, not on the underlying primary CMB. Each realisation is generated from an independent random seed that drives both the unlensed $(a^{T,\rm u},a^{E,\rm u},a^{B,\rm u})$ draw and the independent $\phi$ draw, so $N_f$ runs yield a statistically independent ensemble at fixed cosmology.
+
+\paragraph{Why not just Gaussian draws from the lensed $C_\ell$?}
+The legacy sampler \texttt{simulate\_cmb\_tqu\_from\_cls}, which draws Gaussian alm from the \emph{lensed} CAMB spectra and applies beam/pixel-window in one shot, is retained in the codebase for back-compatibility and as a controlled ablation. It is however strictly mis-specified once any non-2-point statistic is exposed to inference:
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item It reproduces $\langle C_\ell^{TT/EE/BB/TE}\rangle$ by construction but has identically Gaussian one-point and higher-order $n$-point statistics, with vanishing lensing trispectrum and vanishing $T,E,\phi$-bispectrum at fixed $\phi$.
+  \item The lensing-induced $B$-modes generated by $E\!\to\!B$ leakage have, in real lensed skies, a characteristic non-Gaussian morphology that traces the underlying $\phi$ field; a Gaussian draw from the same $C_\ell^{BB}$ produces $B$-modes with no such structure and is observationally indistinguishable from primordial $r$-driven $B$ at the 2-point level only.
+  \item Cosmology-marginalisation extensions (varying $\Omega_m$, $\Omega_\Lambda$, etc.) shift both $C_\ell^{\rm unl}$ and $C_L^{\phi\phi}$ \emph{consistently}, so the lenspyx pipeline correctly propagates parameter variations to the lensed CMB; the Gaussian-lensed-$C_\ell$ pipeline only propagates the marginal $C_\ell^{\rm lensed}$, losing the correlated parameter dependence of the lensing kernel.
+\end{itemize}
+The remapping cost is dominated by two pol-aware SHTs at $N_{\rm side}=512$ (a fraction of a second per realisation on a single core through DUCC), so the upgrade is essentially free relative to map I/O and patch extraction. Empirically (notebook validation cell), individual lenspyx realisations recover the lensed CAMB $\{C_\ell^{TT},C_\ell^{EE}\}$ to within cosmic variance on the full sky; the lensing-induced $C_\ell^{BB}$ converges from below as the lensing bandwidth approaches the support of $C_L^{\phi\phi}\!\otimes\!C_\ell^{EE}$, an artefact of the finite-$\ell_{\max}$ remap that vanishes well before the noise level of Planck $143\,\mathrm{GHz}$.
+
+\paragraph{Approximations and forward look: explicit lensing operator (Option 2).}
+The current pipeline carries one explicit approximation: the unlensed CMB $(a^{T,\rm u},a^{E,\rm u},a^{B,\rm u})$ and the lensing potential $\phi_{LM}$ are drawn \emph{independently}, so the small ($\mathcal O(10^{-3})$) CMB$\times\phi$ cross-spectra $C_L^{\phi T}$ (from late-time ISW) and $C_L^{\phi E}$ are not imposed at the level of individual realisations. This is the standard convention used by Planck FFP10 \cite{planck2018overview} and CMB-S4 simulation libraries, and is negligible compared with cosmic variance at the multipole range used here ($\ell\lesssim 1500$). A subdominant second approximation is that $\phi$ is treated as Gaussian; the leading-order $\phi$ non-Gaussianity from non-linear large-scale structure is at the few-percent level on $C_L^{\phi\phi}$ \cite{lewis2006lensing} and well below the simulation accuracy required for the present problem.
+
+A more principled treatment, planned as a follow-up extension when polarisation $B$-modes (and hence the tensor-to-scalar ratio $r$) become the science target, is to absorb the lensing remap into the forward model rather than into the prior. Concretely, Eq.~(\ref{eq:fwd_model}) is rewritten as
+\begin{align}
+  y \;=\; A\,\bigl[\,\mathcal L(\phi)\,f_{\rm u} \,+\, x\bigr] \,+\, n,
+  \label{eq:fwd_model_explicit_lensing}
+\end{align}
+where $f_{\rm u}$ is the \emph{unlensed} CMB and $\mathcal L(\phi)$ is the gravitational-lensing operator built from the lensing potential $\phi$ (the same operator that \texttt{lenspyx.alm2lenmap} implements). The advantages of this ``Option 2'' are that
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.1em]
+  \item the prior $p(f_{\rm u})$ becomes a Gaussian on the unlensed CMB, which is the physically correct prior and whose density is closed-form---no need to train a neural prior to learn lensing non-Gaussianity, since it is now in the model;
+  \item the lensing potential $\phi$ becomes a latent random field with a Gaussian prior $p(\phi)=\mathcal N(0,C_L^{\phi\phi})$ that can be jointly inferred from the data, yielding a calibrated posterior $p(f_{\rm u},x,\phi\mid y)$ rather than a marginal $p(f,x\mid y)$;
+  \item cosmological-parameter marginalisation is straightforward because all dependence on $\Omega_m$, $\Omega_\Lambda$, $H_0$ is now carried by the closed-form Gaussian priors on $f_{\rm u}$ and $\phi$ rather than by an empirically learned non-Gaussian prior.
+\end{enumerate}
+Three sub-variants of Option 2 are natural and would re-use most of the present infrastructure:
+\begin{itemize}[leftmargin=1.5em,itemsep=0.1em]
+  \item \emph{Fixed-$\phi$.} Replace $\phi$ in Eq.~(\ref{eq:fwd_model_explicit_lensing}) with the public Planck PR4 lensing reconstruction \texttt{COM\_Lensing\_4096\_R4.00} \cite{carron2022planckpr4lensing}. The likelihood gradients used during posterior sampling become $\nabla_{f_{\rm u}}\log p(y\mid f_{\rm u},x)$ computed through the linear adjoint of $\mathcal L(\hat\phi)$, which lenspyx also exposes. Cheapest variant but ignores reconstruction noise on $\hat\phi$.
+  \item \emph{Joint $\phi$ sampling.} Augment the latent state of the diffusion sampler with $\phi$ and add likelihood gradients $\nabla_{\phi}\log p(y\mid f_{\rm u},x,\phi)$ alongside the existing $\nabla_{f_{\rm u},x}\log p(y\mid f_{\rm u},x,\phi)$. This realises the MUSE / Anderes--Millea--Seljak scheme \cite{millea2020muse} in the diffusion-sampler framework and yields a fully calibrated joint posterior on $(f_{\rm u},x,\phi)$.
+  \item \emph{Quadratic-marginalised $\phi$.} Marginalise $\phi$ to leading order analytically (Hu--Okamoto quadratic estimator). Useful as a fast consistency check; the residual non-Gaussianity in $f_{\rm u}$ after marginalisation is at the level of higher-order $\phi$ moments and is negligible at Planck noise levels.
+\end{itemize}
+The Option-1 sampler implemented in this work is the strict subset of the fixed-$\phi$ variant in which one further drops the dependence on $\hat\phi$ at sampling time and absorbs the resulting marginal lensed CMB into a learned prior. It is the right starting point for the present temperature-dominated analysis, and provides a precise quantitative baseline against which any future Option-2 extension will be validated.
+
+\paragraph{Output.}
+A bank of $N_f$ independent full-sky lenspyx-lensed realisations is generated by the routine \texttt{build\_prior\_patch\_datasets} (with \texttt{lensing\_method=\textquotesingle lenspyx\_remap\textquotesingle}, the default) and reduced to flat $(T,Q,U)$ patches by the common patch-extraction and standardisation pipeline of Sec.~\ref{sec:data}. The resulting training-ready array has shape $(N_{\rm patches},3,64,64)$ with $N_{\rm patches}=N_f\times N_{\rm patches/map}$. Selecting \texttt{lensing\_method=\textquotesingle gaussian\_lensed\_cl\textquotesingle} switches back to the legacy Gaussian-from-lensed-$C_\ell$ sampler with the same output schema, useful as an ablation control.
+
+\subsection{\texorpdfstring{$p(x)$}{p(x)}: simulated foreground priors}
+\label{sec:data_prior_x}
+
+The Galactic-foreground prior is built from PySM\,3 \cite{thorne2017pysm,zonca2021pysm3}, which we instantiate at $N_{\rm side}=512$ with the standard \texttt{d1}+\texttt{s1} component model: \texttt{d1} is a single modified-blackbody thermal-dust template scaled from the Planck \texttt{COMMANDER} solution, and \texttt{s1} is a power-law synchrotron template scaled from the WMAP $K$-band map. Emission is evaluated at $143\,\mathrm{GHz}$ with \texttt{Sky.get\_emission} and converted from PySM's native antenna units to $\mu\mathrm{K}_{\rm CMB}$ via \texttt{astropy.units.cmb\_equivalencies($143\,\mathrm{GHz}$)} (helper \texttt{\_to\_uK\_cmb}), ensuring unit consistency with $y$ and $f$. We deliberately exclude PySM's \texttt{c1} (lensed-CMB) component from the foreground sky used in $p(x)$, since the lensed CMB is already drawn independently as $p(f)$ and including it twice would bias the joint prior; an exploratory \texttt{d1}+\texttt{s1}+\texttt{c1} sky is instantiated at the top of the data section purely as a visual sanity check (Mollweide views of $I$ and $P=\sqrt{Q^2+U^2}$ at $143\,\mathrm{GHz}$) and is not used downstream.
+
+Because the PySM \texttt{d1}+\texttt{s1} sky is a deterministic template rather than a stochastic field, an ensemble of distinct full-sky realisations is generated by augmenting a single base $(T,Q,U)$ map with random rigid rotations of the sphere. For each of $N_x$ realisations we draw Euler angles
+\begin{equation}
+  \alpha\sim\mathcal U(0,2\pi),\qquad
+  \cos\beta\sim\mathcal U(-1,1),\qquad
+  \gamma\sim\mathcal U(0,2\pi),
+\end{equation}
+i.e.~a uniform sample on $\mathrm{SO}(3)$, and apply \texttt{healpy.Rotator(rot=$(\alpha,\beta,\gamma)$).rotate\_map\_pixel} to the full $(T,Q,U)$ stack with a single base random generator (\texttt{seed\_fg}); this preserves the spin-2 transformation of polarisation and produces realisations that share the morphological one-point and two-point statistics of the base sky but explore arbitrary orientations relative to the Galactic plane. The rotated map is then convolved with the same Gaussian beam used for $y$ and $f$ via \texttt{healpy.smoothing} with \texttt{fwhm}$=10'$ and \texttt{pol=True} (spin-correct beam), so that the foreground prior shares a common effective resolution with the data and the CMB prior. We do not apply the HEALPix pixel window to the foreground prior, since the PySM emission is computed natively at $N_{\rm side}=512$ and is therefore already pixel-window-convolved at that resolution.
+
+The full pipeline for a single foreground realisation is therefore
+\begin{equation}
+  \underbrace{\text{PySM \texttt{d1}+\texttt{s1}@}\,143\,\mathrm{GHz}}_{\text{base map, computed once}}
+  \;\xrightarrow{\text{rotate}}\;
+  \;\xrightarrow{\text{smooth at }10'}\;
+  \;\xrightarrow{\text{patches}}\;
+  \;\xrightarrow{\text{split + standardise}}\;
+  \text{saved \texttt{.npz}.}
+\end{equation}
+Patch extraction, splitting and per-channel standardisation proceed identically to $p(f)$ via the common pipeline of Sec.~\ref{sec:data}, ensuring that the two priors are ingested by the U-Net in the same numerical and angular domain. This is a prerequisite for the joint posterior sampler of Sec.~1, which assumes a single shared representation for $f$ and $x$.
+
+We note two limitations of this construction inherited from the underlying simulation choices. First, \texttt{d1}+\texttt{s1} produces a single deterministic template; the rotational augmentation enriches the orientation but not the small-scale stochasticity of the Galactic field, so the learned prior $p(x)$ is best interpreted as the distribution of $143\,\mathrm{GHz}$ foreground patches \emph{morphologically consistent with the Planck-derived templates}, not as a fully marginalised model over Galactic-emission parameters. Second, the dust temperature, dust spectral index, and synchrotron spectral index are held fixed at their template values; spectral-parameter variations across the sky (e.g.~PySM \texttt{d10}/\texttt{s5}) and additional foreground species (AME, free-free, point sources) are deferred to future work. These restrictions are consistent with the scope of the present prior-learning stage and do not affect the validity of the pipeline that follows.
+
+\subsection{Conversion to flat patches and saved prior datasets}
+\label{sec:data_savedpriors}
+
+We collect here, in one place, the full sequence of transformations applied to each prior between simulation and disk, together with the on-disk format of the resulting datasets. This is the data that is loaded by the diffusion-model training and sampling cells of Sec.~5, and the description that follows fixes everything the reader needs to know to reproduce them.
+
+\paragraph{Per-realisation pipeline.} For a single full-sky realisation of $f$ or $x$, the transformations are applied in the following fixed order:
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.1em]
+  \item \emph{Generate} a $(T,Q,U)$ HEALPix map at $N_{\rm side}=512$ in $\mu\mathrm{K}_{\rm CMB}$, including all relevant transfer functions: for $p(f)$, beam $B_\ell$ and HEALPix pixel windows $P_\ell^{T,P}$ are applied internally by \texttt{simulate\_cmb\_tqu\_from\_cls} (Sec.~\ref{sec:data_prior_f}); for $p(x)$, the random $\mathrm{SO}(3)$ rotation is applied first and then the spin-correct $10'$ Gaussian beam via \texttt{healpy.smoothing} (Sec.~\ref{sec:data_prior_x}).
+  \item \emph{Patch extraction} via \texttt{\_extract\_random\_patches}: a target of $N_{\rm patches/map}$ flat-sky patches is collected by rejection sampling, with candidate centres restricted to mask-clean HEALPix pixels and the full $64\!\times\!64$ projected footprint required to satisfy $M\!\geq\!0.9$ (Sec.~\ref{sec:data}). Each accepted patch is the output of \texttt{\_project\_patch\_tqu} with \texttt{rotate\_pol=True}, which scalar-resamples $T$, scalar-resamples $(Q,U)$, and then spin-2 rotates $(Q,U)$ to the local patch frame using a numerically-evaluated $\psi(\hat n)$ (Sec.~\ref{sec:flatsky}); non-finite values introduced at patch edges are replaced by zero.
+  \item \emph{Concatenation} of the per-realisation patch banks into a single array of shape $(N_{\rm patches},3,64,64)$ with $N_{\rm patches}=N_{\rm maps}\!\times\!N_{\rm patches/map}$, dtype \texttt{float32}, channel order $(T,Q,U)$.
+\end{enumerate}
+
+\paragraph{Split and per-channel standardisation.} The concatenated array is then passed to \texttt{\_split\_and\_normalize}, which:
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.1em]
+  \item shuffles all patch indices once with a deterministic seed (\texttt{shuffle\_seed});
+  \item splits the shuffled array $90/10$ into \texttt{train\_raw} and \texttt{val\_raw};
+  \item computes per-channel statistics
+  \begin{equation}
+    \mu_c = \mathrm{mean}_{(\rm patch,\,x,\,y)}(\texttt{train\_raw}_c),
+    \qquad
+    \sigma_c = \mathrm{std}_{(\rm patch,\,x,\,y)}(\texttt{train\_raw}_c),
+    \qquad c\in\{T,Q,U\},
+  \end{equation}
+  on the training split only, with $\sigma_c$ floored at $10^{-6}$ before inversion to guard against degenerate channels;
+  \item applies the affine map $\tilde X_c = (X_c-\mu_c)/\sigma_c$ to both splits to produce \texttt{train\_norm} and \texttt{val\_norm}.
+\end{enumerate}
+
+\paragraph{On-disk format.} The two priors are written to disk in compressed NumPy archives,
+\begin{equation}
+  \texttt{cmb\_fg\_prior\_f\_cmb.npz},\qquad
+  \texttt{cmb\_fg\_prior\_x\_fg.npz},
+\end{equation}
+each containing six float32 arrays:
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  Key & Description \\
+  \midrule
+  \texttt{train\_raw} & Training patches in physical $\mu\mathrm{K}_{\rm CMB}$, shape $(N_{\rm train},3,64,64)$ \\
+  \texttt{val\_raw}   & Validation patches in physical $\mu\mathrm{K}_{\rm CMB}$, shape $(N_{\rm val},3,64,64)$ \\
+  \texttt{train\_norm} & Standardised training patches, shape $(N_{\rm train},3,64,64)$ \\
+  \texttt{val\_norm}   & Standardised validation patches, shape $(N_{\rm val},3,64,64)$ \\
+  \texttt{mean}       & Per-channel training mean $\mu_c$, shape $(1,3,1,1)$ \\
+  \texttt{std}        & Per-channel training std  $\sigma_c$, shape $(1,3,1,1)$ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+A companion human-readable \texttt{cmb\_fg\_meta.json} captures every parameter of the build (resolution, $\ell_{\max}$, beam, pixel-window flag, patch geometry, mask threshold, full-patch validity flag, $N_{\rm maps}$, foreground frequency and presets, rotation flag, train fraction, and all RNG seeds), so that the dataset is fully reproducible from the notebook state.
+
+Storing both \texttt{*\_raw} (physical units) and \texttt{*\_norm} (standardised) variants serves two complementary purposes: training and U-Net inference are performed entirely in the normalised domain (where $T,Q,U$ have unit per-channel variance and zero mean by construction), while spectral diagnostics, posterior sampling, and any comparison against theoretical $C_\ell$ tables are most naturally expressed in physical $\mu\mathrm{K}_{\rm CMB}^2$ units and require the de-standardisation $X_c = \sigma_c\tilde X_c + \mu_c$, with $\mu_c,\sigma_c$ retrieved from the saved \texttt{mean},\texttt{std} arrays.
+
+This concludes the data description. Everything entering the diffusion-model training and posterior-sampling stages of Sec.~5 is fully specified by these two \texttt{.npz} files together with the original $y,d$ half-ring maps of Sec.~\ref{sec:data_obs}, the common processing parameters of Table~\ref{tab:processing_params}, and the metadata file written alongside the priors.
+
+
+
+
+
+\section{Diffusion model and flow matching}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\pagebreak
+
+
+
+\begin{thebibliography}{99}
+
+\bibitem{zaldarriaga1997}
+M.~Zaldarriaga and U.~Seljak,
+``All-sky analysis of polarization in the microwave background,''
+\emph{Physical Review D} \textbf{55} (1997), 1830--1840.
+
+\bibitem{kamionkowski1997}
+M.~Kamionkowski, A.~Kosowsky, and A.~Stebbins,
+``Statistics of cosmic microwave background polarization,''
+\emph{Physical Review D} \textbf{55} (1997), 7368--7388.
+
+\bibitem{gorski2005}
+K.~M.~G\'orski, E.~Hivon, A.~J.~Banday, B.~D.~Wandelt, F.~K.~Hansen,
+M.~Reinecke, and M.~Bartelmann,
+``HEALPix: A Framework for High-Resolution Discretization and Fast Analysis of Data Distributed on the Sphere,''
+\emph{The Astrophysical Journal} \textbf{622} (2005), 759--771.
+
+\bibitem{lewis2000camb}
+A.~Lewis, A.~Challinor, and A.~Lasenby,
+``Efficient Computation of Cosmic Microwave Background Anisotropies in Closed Friedmann--Robertson--Walker Models,''
+\emph{The Astrophysical Journal} \textbf{538} (2000), 473--476.
+
+\bibitem{planck2018overview}
+N.~Aghanim et al. (Planck Collaboration),
+``Planck 2018 results. I. Overview and the cosmological legacy of Planck,''
+\emph{Astronomy \& Astrophysics} \textbf{641} (2020), A1.
+
+\bibitem{thorne2017pysm}
+B.~Thorne, J.~Dunkley, D.~Alonso, and S.~N{\ae}ss,
+``The Python Sky Model: software for simulating the Galactic microwave sky,''
+\emph{Monthly Notices of the Royal Astronomical Society} \textbf{469} (2017), 2821--2833.
+
+\bibitem{zonca2021pysm3}
+A.~Zonca, T.~A.~J.~Louis, B.~Thorne, N.~Krachmalnicoff, and J.~Borrill,
+``PySM 3: A Python Sky Model for simulation of Galactic microwave emission,''
+software/documentation release, 2021.
+
+\bibitem{ho2020ddpm}
+J.~Ho, A.~Jain, and P.~Abbeel,
+``Denoising Diffusion Probabilistic Models,''
+in \emph{Advances in Neural Information Processing Systems 33} (2020).
+
+\bibitem{song2021sde}
+Y.~Song, J.~Sohl-Dickstein, D.~P.~Kingma, A.~Kumar, S.~Ermon, and B.~Poole,
+``Score-Based Generative Modeling through Stochastic Differential Equations,''
+in \emph{International Conference on Learning Representations} (2021).
+
+\bibitem{lipman2023flowmatching}
+Y.~Lipman, R.~T.~Q.~Chen, H.~Ben-Hamu, M.~Nickel, and M.~Le,
+``Flow Matching for Generative Modeling,''
+in \emph{International Conference on Learning Representations} (2023).
+
+\bibitem{sullivan2024methods}
+R.~M.~Sullivan, L.~T.~Hergt, and D.~Scott,
+``Methods for CMB map analysis,''
+\emph{arXiv:2410.12951} (2024), \href{https://doi.org/10.48550/arXiv.2410.12951}{doi:10.48550/arXiv.2410.12951}.
+
+\bibitem{scott2024pdg}
+D.~Scott and G.~F.~Smoot,
+``Cosmic Microwave Background,''
+in \emph{Review of Particle Physics}, Particle Data Group collaboration,
+\emph{Physical Review D} \textbf{110} (2024), 030001, pp.~524--534,
+\href{https://doi.org/10.1103/PhysRevD.110.030001}{doi:10.1103/PhysRevD.110.030001}.
+
+\bibitem{zonca2019healpy}
+A.~Zonca, L.~P.~Singer, D.~Lenz, M.~Reinecke, C.~Rosset, E.~Hivon, and K.~M.~G\'orski,
+``\texttt{healpy}: equal area pixelization and spherical harmonics transforms for data on the sphere in Python,''
+\emph{Journal of Open Source Software} \textbf{4} (2019), 1298,
+\href{https://doi.org/10.21105/joss.01298}{doi:10.21105/joss.01298}.
+
+\bibitem{hivon2002master}
+E.~Hivon, K.~M.~G\'orski, C.~B.~Netterfield, B.~P.~Crill, S.~Prunet, and F.~Hansen,
+``MASTER of the Cosmic Microwave Background Anisotropy Power Spectrum: A Fast Method for Statistical Analysis of Large and Complex Cosmic Microwave Background Data Sets,''
+\emph{The Astrophysical Journal} \textbf{567} (2002), 2--17.
+
+\bibitem{alonso2023namaster}
+D.~Alonso, J.~Sanchez, A.~Slosar, and the LSST Dark Energy Science Collaboration,
+``A unified pseudo-$C_\ell$ framework: \texttt{NaMaster},''
+Astrophysics Source Code Library, ascl:2307.048 (2023).
+
+\bibitem{challinor2000beam}
+A.~Challinor, P.~Fosalba, D.~Mortlock, M.~Ashdown, B.~Wandelt, and K.~G\'orski,
+``All-sky convolution for polarimetry experiments,''
+\emph{Physical Review D} \textbf{62} (2000), 123002.
+
+\bibitem{seljak1997}
+U.~Seljak and M.~Zaldarriaga,
+``Signature of Gravity Waves in the Polarization of the Microwave Background,''
+\emph{Physical Review Letters} \textbf{78} (1997), 2054--2057.
+
+\bibitem{heurtel2023dust}
+D.~Heurtel-Depeiges, B.~Burkhart, R.~Ohana, and B.~R\'egaldo-Saint Blancard,
+``Removing Dust from CMB Observations with Diffusion Models,''
+in \emph{Machine Learning and the Physical Sciences Workshop, NeurIPS} (2023),
+\emph{arXiv:2310.16285}.
+
+\bibitem{reinecke2023ducc}
+M.~Reinecke, S.~Belkner, and J.~Carron,
+``Improved cosmic microwave background (de-)lensing using a generalized
+non-uniform fast Fourier transform,''
+\emph{Astronomy \& Astrophysics} \textbf{678} (2023), A165,
+\href{https://doi.org/10.1051/0004-6361/202346717}{doi:10.1051/0004-6361/202346717},
+\emph{arXiv:2304.10431}.
+Software: \href{https://github.com/carronj/lenspyx}{\texttt{lenspyx}} (wraps
+\href{https://gitlab.mpcdf.mpg.de/mtr/ducc}{\texttt{DUCC}}).
+
+\bibitem{lewis2006lensing}
+A.~Lewis and A.~Challinor,
+``Weak gravitational lensing of the CMB,''
+\emph{Physics Reports} \textbf{429} (2006), 1--65,
+\href{https://doi.org/10.1016/j.physrep.2006.03.002}{doi:10.1016/j.physrep.2006.03.002},
+\emph{arXiv:astro-ph/0601594}.
+
+\bibitem{carron2022planckpr4lensing}
+J.~Carron, M.~Mirmelstein, and A.~Lewis,
+``CMB lensing from Planck PR4 maps,''
+\emph{Journal of Cosmology and Astroparticle Physics} \textbf{09} (2022), 039,
+\href{https://doi.org/10.1088/1475-7516/2022/09/039}{doi:10.1088/1475-7516/2022/09/039},
+\emph{arXiv:2206.07773}.
+
+\bibitem{millea2020muse}
+M.~Millea, E.~Anderes, and B.~D.~Wandelt,
+``Sampling-based inference of the primordial CMB and gravitational lensing,''
+\emph{Physical Review D} \textbf{102} (2020), 123542,
+\href{https://doi.org/10.1103/PhysRevD.102.123542}{doi:10.1103/PhysRevD.102.123542},
+\emph{arXiv:2002.00965}.
+
+\end{thebibliography}
+
+\end{document}
