@@ -7,6 +7,8 @@
 \usepackage{array}
 \usepackage{xcolor}
 \usepackage{cite}
+\usepackage{graphicx}
+\graphicspath{{../plots/}}
 
 \hypersetup{
   colorlinks=true,
@@ -26,6 +28,15 @@
 \newcommand{\zvec}{\bm{z}}
 \newcommand{\thetavec}{\bm{\theta}}
 \newcommand{\grad}{\nabla}
+\newcommand{\pinit}{p_{\rm init}}
+\newcommand{\pdata}{p_{\rm data}}
+\newcommand{\Ndata}{\mathbb{R}^{D}}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{proposition}[definition]{Proposition}
+\newtheorem{theorem}[definition]{Theorem}
+\newtheorem{remark}[definition]{Remark}
 
 \title{A Mathematical Note on \texttt{dm\_cmb.ipynb}:\\
 Patch-Based CMB Prior Learning with Flow Matching}
@@ -35,7 +46,7 @@ Patch-Based CMB Prior Learning with Flow Matching}
 \begin{document}
 \maketitle
 \begin{abstract}
-We document the mathematical content and implementation choices of the notebook \texttt{dm\_cmb.ipynb}, which learns generative priors for $(T,Q,U)$ patches of the cosmic microwave background (CMB) and Galactic foregrounds at $143\,\mathrm{GHz}$ and validates them through flat-sky spectral diagnostics. The workflow combines standard CMB harmonic methods, including spin-weighted polarisation decompositions and Gaussian simulations from $C_\ell$ spectra \cite{zaldarriaga1997,kamionkowski1997,gorski2005,lewis2000camb,sullivan2024methods,scott2024pdg}, with a modern path-based generative model trained by direct flow matching \cite{ho2020ddpm,song2021sde,lipman2023flowmatching}. We describe in detail the pipeline used to bring Planck NPIPE / PR4 half-ring data and simulated priors to a common, well-defined representation: HEALPix pixelisation, harmonic downgrading, beam and pixel-window matching, sky masking, gnomonic patch extraction, spin-2 polarisation rotation, per-channel standardisation, and flat-sky spectrum estimation. The eventual scientific goal is posterior sampling for CMB component separation; this note focuses on the prior-learning stage, which is a prerequisite for any likelihood-based inference and which fixes the experimental conventions used in the rest of the work.
+We document the mathematical content and implementation choices of the notebook \texttt{dm\_cmb.ipynb}, which learns generative priors for $(T,Q,U)$ patches of the cosmic microwave background (CMB) and Galactic foregrounds at $143\,\mathrm{GHz}$ and validates them through flat-sky spectral diagnostics. The workflow combines standard CMB harmonic methods---spin-weighted polarisation decompositions, full-sky simulations from CAMB power spectra, and curved-sky non-Gaussian lensing of the CMB primary by an independently sampled lensing potential through the \texttt{lenspyx}/\texttt{DUCC} remapping engine \cite{zaldarriaga1997,kamionkowski1997,gorski2005,lewis2000camb,sullivan2024methods,scott2024pdg,reinecke2023ducc}---with a modern path-based generative model trained by direct flow matching \cite{ho2020ddpm,song2021sde,lipman2023flowmatching}. We describe in detail the pipeline used to bring Planck NPIPE / PR4 half-ring data and simulated priors to a common, well-defined representation: HEALPix pixelisation, harmonic downgrading, beam and pixel-window matching, sky masking, gnomonic patch extraction, spin-2 polarisation rotation, per-channel standardisation, and flat-sky spectrum estimation. The diffusion model is then specified completely: the Gaussian conditional probability path, the choice of signal/noise schedules, the U-Net vector-field architecture, the auxiliary radial Fourier-power regulariser used at training time, the deterministic Heun ODE sampler, and the spectral-validation diagnostics. The eventual scientific goal is posterior sampling for CMB component separation; this note focuses on the prior-learning stage, which is a prerequisite for any likelihood-based inference and which fixes the experimental conventions used in the rest of the work.
 \end{abstract}
 \tableofcontents
 \bigskip
@@ -47,6 +58,7 @@ We document the mathematical content and implementation choices of the notebook 
 
 
 \section{Introduction}
+\label{sec:intro}
 
 The cosmic microwave background (CMB) is a relic blackbody radiation field whose temperature and polarisation anisotropies encode the statistical properties of the very early universe and are central to modern cosmology \cite{scott2024pdg,planck2018overview}. CMB observations are however contaminated by Galactic foregrounds (most notably thermal dust and synchrotron emission), instrumental noise, and the angular smoothing and sky masking imposed by realistic telescopes. Recovering the underlying CMB signal from the observed maps is therefore a component-separation problem.
 
@@ -65,7 +77,7 @@ with $N$ the noise covariance, and the posterior of interest factorises as
 \end{align}
 Component separation thus requires (i) a tractable likelihood, which is fixed once the instrumental pipeline and noise model are specified, and (ii) data-driven priors $p(x)$ and $p(f)$, which we learn from realistic simulations. We train two independent U-Net models to parametrise vector fields $u^\theta_t$ that generate probability paths from a simple Gaussian base distribution to each prior, and we sample those priors by integrating the corresponding ODE/SDE \cite{lipman2023flowmatching}. Posterior sampling is then obtained by augmenting the prior sampler with likelihood gradients $\nabla_x \log p(y\mid x,f)$ and $\nabla_f \log p(y\mid x,f)$ during integration; this is the only stage at which the observed CMB data $y$ enters the inference.
 
-We work at a single frequency, $143\ \mathrm{GHz}$, using Planck NPIPE / PR4 half-ring maps as the observed sky $y$ and the publicly released $143\ \mathrm{GHz}$ confidence mask as $A$'s sky cut \cite{planck2018overview}. Theoretical CMB spectra are computed with CAMB \cite{lewis2000camb} for a fiducial $\Lambda$CDM cosmology and used to draw Gaussian $f$-priors that share the same effective beam, pixel window, and sky footprint as the observations \cite{sullivan2024methods}. Galactic foreground priors are obtained from PySM\,3 \cite{thorne2017pysm,zonca2021pysm3}, which provides full-sky $(I,Q,U)$ simulations of dust and synchrotron emission consistent with Planck data products. All maps are processed in the HEALPix pixelisation \cite{gorski2005,zonca2019healpy} and the diffusion model is trained on flat-sky $64\times 64$ patches obtained by gnomonic projection.
+We work at a single frequency, $143\ \mathrm{GHz}$, using Planck NPIPE / PR4 half-ring maps as the observed sky $y$ and the publicly released $143\ \mathrm{GHz}$ confidence mask as $A$'s sky cut \cite{planck2018overview}. Theoretical CMB spectra are computed with CAMB \cite{lewis2000camb} for a fiducial $\Lambda$CDM cosmology and used, together with the lensing-potential auto-spectrum $C_L^{\phi\phi}$, to draw lensed-CMB $f$-priors that share the same effective beam, pixel window, and sky footprint as the observations \cite{sullivan2024methods,reinecke2023ducc}. Galactic foreground priors are obtained from PySM\,3 \cite{thorne2017pysm,zonca2021pysm3}, which provides full-sky $(I,Q,U)$ simulations of dust and synchrotron emission consistent with Planck data products; we use the small-scale stochastic presets \texttt{d10} and \texttt{s5}, so that successive foreground realisations are statistically independent draws of the small-scale Galactic field rather than rotated copies of a fixed template. All maps are processed in the HEALPix pixelisation \cite{gorski2005,zonca2019healpy} and the diffusion model is trained on flat-sky $64\times 64$ patches obtained by gnomonic projection.
 
 The scientific motivation is twofold. First, by learning $p(f)$ and $p(x)$ from data we obtain priors that capture non-Gaussian morphology that simple parametric models cannot represent, in particular for Galactic foregrounds. Second, the resulting posterior sampler outputs an ensemble of plausible component maps consistent with the data, providing both a point estimate of $(x,f)$ and a calibrated uncertainty on it. This is a prerequisite for unbiased downstream cosmological inference, including the search for primordial $B$-modes for which residual foreground contamination is the dominant systematic.
 
@@ -372,7 +384,7 @@ By construction all three products live in the same numerical and angular domain
   \item HEALPix resolution $N_{\rm side}=512$, corresponding to $N_{\rm pix}=12N_{\rm side}^2=3{,}145{,}728$ pixels and a pixel scale $\theta_r\simeq 6.87'$ (Sec.~\ref{sec:healpix}). This is the lowest power-of-two $N_{\rm side}$ that comfortably band-limits maps smoothed to the target $10'$ beam, while keeping the cost of training a U-Net on patches manageable.
   \item Harmonic cutoff $\ell_{\max}=3N_{\rm side}-1=1535$ in all spherical-harmonic transforms (Sec.~\ref{sec:downgrade}).
   \item Common effective beam: a circular Gaussian of FWHM $\theta_{\rm out}=10'$ applied to all three products via Eq.~(\ref{eq:beam_Bl}) (Sec.~\ref{sec:beam}). This common-beam choice is what makes the data and the prior simulations harmonically compatible.
-  \item Pixel windows: the polarisation-aware HEALPix windows $P_\ell^{T}$ and $P_\ell^{P}$ at $N_{\rm side}=512$ are applied to the simulated priors (Sec.~\ref{sec:pixwin}). At this configuration $P_\ell^{T,P}$ contributes at most an extra $\sim 8\%$ damping at $\ell=\ell_{\max}$ relative to the beam alone. Pixel-window deconvolution is not applied to the observed maps; the corresponding mismatch is bounded by the input pixel-window correction at $N_{\rm side}^{\rm in}=2048$, $\lesssim 0.3\%$ over the represented multipole range.
+  \item Pixel windows: the polarisation-aware HEALPix windows $P_\ell^{T}$ and $P_\ell^{P}$ at $N_{\rm side}=512$ are applied uniformly to both simulated priors $p(f)$ and $p(x)$ via a common harmonic-space step (Sec.~\ref{sec:pixwin}), so that $p(f)$ and $p(x)$ share an identical effective transfer function. At this configuration $P_\ell^{T,P}$ contributes at most an extra $\sim 8\%$ damping at $\ell=\ell_{\max}$ relative to the beam alone. Pixel-window deconvolution is not applied to the observed maps; the corresponding mismatch is bounded by the input pixel-window correction at $N_{\rm side}^{\rm in}=2048$, $\lesssim 0.3\%$ over the represented multipole range.
   \item Common sky mask: the public Planck $143\,\mathrm{GHz}$ confidence mask $M(\hat n)$, downgraded to $N_{\rm side}=512$ with \texttt{healpy.ud\_grade} and thresholded at $M_{\rm min}=0.9$ to define the clean-sky footprint (Sec.~\ref{sec:masking}).
   \item Patch geometry: square $N_{\rm patch}\!\times\!N_{\rm patch}=64\!\times\!64$ flat-sky patches obtained by gnomonic projection at angular sampling $\theta_{\rm patch}=6.7'$/pixel, giving a linear extent
   \begin{equation}
@@ -382,7 +394,7 @@ By construction all three products live in the same numerical and angular domain
   \end{equation}
   i.e.\ $f_{\rm sky}^{\rm patch}\simeq 0.12\%$ per patch. Curvature corrections are of order $L^2\!\sim\!1.5\times 10^{-2}$ and the flat-sky approximation is accurate. Patch projection is implemented by \texttt{healpy.projector.GnomonicProj}: the temperature channel is resampled by scalar interpolation, while $(Q,U)$ are first resampled and then spin-2 rotated to the local patch frame using Eq.~(\ref{eq:flatsky_estimator})\,'s spin-2 matrix, with rotation angle $\psi(\hat n)$ computed numerically by finite-differencing the projection along the local north direction (function \texttt{\_project\_patch\_tqu}, flag \texttt{rotate\_pol=True}; Sec.~\ref{sec:flatsky}). Non-finite values introduced at projection edges are explicitly replaced by zero.
   \item Patch-centre selection and full-patch validity: candidate centres are drawn from the set $\{i:M_i\geq 0.9\}$ at $N_{\rm side}=512$. For each candidate, the mask is itself first projected onto the same $64\!\times\!64$ gnomonic grid (function \texttt{\_project\_patch\_scalar}), and the candidate is rejected unless every pixel of the projected footprint satisfies $M\!\geq\!0.9$ (function \texttt{\_extract\_random\_patches}). This produces an ensemble of effectively unmasked patches at the cost of a non-trivial reduction of usable sky, with an empirically observed acceptance rate of order $50$--$60\%$ at $N_{\rm side}=512$ for the $143\,\mathrm{GHz}$ mask. A target of $N_{\rm patches/map}$ patches is collected per full-sky realisation via rejection sampling, with a hard cap of $40\,N_{\rm patches/map}$ attempts before raising an error.
-  \item Splits and standardisation: the concatenated patch array is shuffled with a fixed seed, split $90/10$ into training and validation sets, and per-channel statistics $\mu_c,\sigma_c$ ($c\in\{T,Q,U\}$) are computed once on the training split only and applied verbatim to the validation split (function \texttt{\_split\_and\_normalize}; Sec.~\ref{sec:normalisation}). To guard against degenerate channels, $\sigma_c$ is floored at $10^{-6}$ before inversion.
+  \item Splits and standardisation: the train/validation split is performed at the level of full-sky realisations rather than at the patch level (a $90/10$ split of the $N_{\rm maps}$ realisations, followed by concatenation of the corresponding per-realisation patch banks), so that no large-scale Fourier modes are shared between training and validation; per-channel statistics $\mu_c,\sigma_c$ ($c\in\{T,Q,U\}$) are computed once on the training split only and applied verbatim to the validation split (Sec.~\ref{sec:normalisation}, \ref{sec:data_savedpriors}). To guard against degenerate channels, $\sigma_c$ is floored at $10^{-6}$ before inversion.
   \item Bandpower binning: when validating a learned prior with the flat-sky estimator (\ref{eq:flatsky_estimator}), we bin into $\sim 30$ linear or log-spaced annuli of $|\bm\ell|$ between $\ell_{\rm min}\simeq 2\pi/L\approx 50$ and $\ell_{\rm max}\simeq \pi/\theta_{\rm patch}\approx 1500$.
 \end{itemize}
 
@@ -530,28 +542,43 @@ A bank of $N_f$ independent full-sky lenspyx-lensed realisations is generated by
 \subsection{\texorpdfstring{$p(x)$}{p(x)}: simulated foreground priors}
 \label{sec:data_prior_x}
 
-The Galactic-foreground prior is built from PySM\,3 \cite{thorne2017pysm,zonca2021pysm3}, which we instantiate at $N_{\rm side}=512$ with the standard \texttt{d1}+\texttt{s1} component model: \texttt{d1} is a single modified-blackbody thermal-dust template scaled from the Planck \texttt{COMMANDER} solution, and \texttt{s1} is a power-law synchrotron template scaled from the WMAP $K$-band map. Emission is evaluated at $143\,\mathrm{GHz}$ with \texttt{Sky.get\_emission} and converted from PySM's native antenna units to $\mu\mathrm{K}_{\rm CMB}$ via \texttt{astropy.units.cmb\_equivalencies($143\,\mathrm{GHz}$)} (helper \texttt{\_to\_uK\_cmb}), ensuring unit consistency with $y$ and $f$. We deliberately exclude PySM's \texttt{c1} (lensed-CMB) component from the foreground sky used in $p(x)$, since the lensed CMB is already drawn independently as $p(f)$ and including it twice would bias the joint prior; an exploratory \texttt{d1}+\texttt{s1}+\texttt{c1} sky is instantiated at the top of the data section purely as a visual sanity check (Mollweide views of $I$ and $P=\sqrt{Q^2+U^2}$ at $143\,\mathrm{GHz}$) and is not used downstream.
+The Galactic-foreground prior is built from PySM\,3 \cite{thorne2017pysm,zonca2021pysm3}, instantiated at $N_{\rm side}=512$ with the small-scale component model \texttt{d10}+\texttt{s5}: \texttt{d10} is a modified-blackbody thermal-dust template whose dust temperature $T_d(\hat n)$ and spectral index $\beta_d(\hat n)$ are spatially varying maps derived from Planck data, and whose small-scale fluctuations below the resolution of the input templates ($\ell\!\gtrsim\!300$) are populated stochastically by a non-Gaussian small-scale model fitted to high-latitude Planck residuals; \texttt{s5} is the analogous spatially-varying-spectral-index synchrotron model whose small-scale modes are drawn stochastically from a fitted power-law amplitude. The choice of small-scale presets, rather than the deterministic \texttt{d1}+\texttt{s1} pair, is critical: it makes each foreground realisation a genuinely independent draw of the small-scale Galactic field, rather than a rotated copy of a single deterministic template, and is what allows the learned prior $p(x)$ to capture the patch-level variability of the Galactic emission. We exclude PySM's \texttt{c1} (lensed-CMB) component from the foreground sky used in $p(x)$, since the lensed CMB is already drawn independently as $p(f)$ and including it twice would bias the joint prior; an exploratory \texttt{d1}+\texttt{s1}+\texttt{c1} sky is instantiated at the top of the data section purely as a visual sanity check (Mollweide views of $I$ and $P=\sqrt{Q^2+U^2}$ at $143\,\mathrm{GHz}$) and is not used downstream.
 
-Because the PySM \texttt{d1}+\texttt{s1} sky is a deterministic template rather than a stochastic field, an ensemble of distinct full-sky realisations is generated by augmenting a single base $(T,Q,U)$ map with random rigid rotations of the sphere. For each of $N_x$ realisations we draw Euler angles
+\paragraph{Independent stochastic realisations.}
+For each of $N_x$ realisations we re-seed the random number generator that drives PySM's small-scale models with a fresh seed derived deterministically from a master foreground seed, and then build a new \texttt{Sky} object. Because PySM samples its small-scale modes at \texttt{Sky}-construction time, this guarantees that successive realisations have \emph{statistically independent} small-scale Galactic structure while sharing the same large-scale template above the small-scale-model crossover multipole. In particular, both the morphology of the small-scale dust filaments and the small-scale polarisation amplitude vary realisation-to-realisation, in contrast with the deterministic \texttt{d1}+\texttt{s1} presets where these would be repeated identically. Emission is evaluated at the common observing frequency $143\,\mathrm{GHz}$ and converted from PySM's native Rayleigh--Jeans antenna units to thermodynamic $\mu\mathrm{K}_{\rm CMB}$ through the Planck blackbody equivalency, ensuring unit consistency with $y$ and $f$.
+
+\paragraph{Random orientation augmentation.}
+Each stochastic realisation is then optionally rotated by a uniformly sampled element $R\in\mathrm{SO}(3)$, drawn via Euler angles
 \begin{equation}
   \alpha\sim\mathcal U(0,2\pi),\qquad
   \cos\beta\sim\mathcal U(-1,1),\qquad
   \gamma\sim\mathcal U(0,2\pi),
+  \label{eq:so3_uniform}
 \end{equation}
-i.e.~a uniform sample on $\mathrm{SO}(3)$, and apply \texttt{healpy.Rotator(rot=$(\alpha,\beta,\gamma)$).rotate\_map\_pixel} to the full $(T,Q,U)$ stack with a single base random generator (\texttt{seed\_fg}); this preserves the spin-2 transformation of polarisation and produces realisations that share the morphological one-point and two-point statistics of the base sky but explore arbitrary orientations relative to the Galactic plane. The rotated map is then convolved with the same Gaussian beam used for $y$ and $f$ via \texttt{healpy.smoothing} with \texttt{fwhm}$=10'$ and \texttt{pol=True} (spin-correct beam), so that the foreground prior shares a common effective resolution with the data and the CMB prior. We do not apply the HEALPix pixel window to the foreground prior, since the PySM emission is computed natively at $N_{\rm side}=512$ and is therefore already pixel-window-convolved at that resolution.
+acting on the full $(T,Q,U)$ stack with the spin-correct rotation of polarisation under change of basis (so that $E$/$B$ are preserved). Because the Galactic plane is a strong morphological prior on the unrotated PySM sky, the rotation augmentation prevents the patch ensemble from being biased towards the small subset of orientations sampled by a fixed Galactic frame, and (combined with the by-map train/validation split below) avoids the trivial overfitting in which the model memorises specific Galactic features.
+
+\paragraph{Common transfer-function application.}
+The rotated $(T,Q,U)$ realisation is then transported into harmonic space, multiplied by the common transfer functions, and synthesised back to a HEALPix map. Specifically, polarised harmonic coefficients $(a^T_{\ell m},a^E_{\ell m},a^B_{\ell m})$ up to the band-limit $\ell_{\max}=3N_{\rm side}-1$ are filtered through
+\begin{equation}
+  a_{\ell m}^T\to B_\ell\,P_\ell^{T}\,a_{\ell m}^T,
+  \qquad
+  a_{\ell m}^{E,B}\to B_\ell\,P_\ell^{P}\,a_{\ell m}^{E,B},
+\end{equation}
+with the $10'$ FWHM Gaussian beam $B_\ell$ and the polarisation-aware HEALPix pixel windows $P_\ell^{T}$, $P_\ell^{P}$ defined in Sec.~\ref{sec:beam}--\ref{sec:pixwin}. This yields an effective transfer function for $p(x)$ that is \emph{identical} to the one applied to $p(f)$ in Sec.~\ref{sec:data_prior_f}, which is a prerequisite for any well-posed joint inference of $f$ and $x$ from the same observed $y$: a mismatch in the effective beams or pixel windows of the two priors would propagate as a bias on the relative amplitudes of the two components in the posterior.
 
 The full pipeline for a single foreground realisation is therefore
 \begin{equation}
-  \underbrace{\text{PySM \texttt{d1}+\texttt{s1}@}\,143\,\mathrm{GHz}}_{\text{base map, computed once}}
-  \;\xrightarrow{\text{rotate}}\;
-  \;\xrightarrow{\text{smooth at }10'}\;
-  \;\xrightarrow{\text{patches}}\;
-  \;\xrightarrow{\text{split + standardise}}\;
+  \underbrace{\text{PySM \texttt{d10}+\texttt{s5}@}\,143\,\mathrm{GHz}}_{\text{re-seeded \texttt{Sky}, independent draw}}
+  \;\xrightarrow{\;\text{SO(3) rotation}\;}\;
+  \;\xrightarrow{\;\text{beam + pixel window}\;}\;
+  \;\xrightarrow{\;\text{patches}\;}\;
+  \;\xrightarrow{\;\text{by-map split + standardise}\;}\;
   \text{saved \texttt{.npz}.}
 \end{equation}
 Patch extraction, splitting and per-channel standardisation proceed identically to $p(f)$ via the common pipeline of Sec.~\ref{sec:data}, ensuring that the two priors are ingested by the U-Net in the same numerical and angular domain. This is a prerequisite for the joint posterior sampler of Sec.~1, which assumes a single shared representation for $f$ and $x$.
 
-We note two limitations of this construction inherited from the underlying simulation choices. First, \texttt{d1}+\texttt{s1} produces a single deterministic template; the rotational augmentation enriches the orientation but not the small-scale stochasticity of the Galactic field, so the learned prior $p(x)$ is best interpreted as the distribution of $143\,\mathrm{GHz}$ foreground patches \emph{morphologically consistent with the Planck-derived templates}, not as a fully marginalised model over Galactic-emission parameters. Second, the dust temperature, dust spectral index, and synchrotron spectral index are held fixed at their template values; spectral-parameter variations across the sky (e.g.~PySM \texttt{d10}/\texttt{s5}) and additional foreground species (AME, free-free, point sources) are deferred to future work. These restrictions are consistent with the scope of the present prior-learning stage and do not affect the validity of the pipeline that follows.
+\paragraph{Limitations.}
+We note two limitations of this construction inherited from the underlying simulation choices. First, although \texttt{d10}+\texttt{s5} populates the small scales stochastically, the large-scale structure ($\ell\!\lesssim\!300$) is still anchored to a deterministic Planck-derived template; the rotation augmentation enriches the orientation distribution but not the large-scale stochasticity of the Galactic field, so the learned prior $p(x)$ is best interpreted as the distribution of $143\,\mathrm{GHz}$ foreground patches consistent with the Planck-derived large-scale templates and a fitted small-scale model, rather than a fully marginalised model over Galactic-emission parameters. Second, additional foreground species (AME, free-free, point sources) are deferred to future work. These restrictions are consistent with the scope of the present prior-learning stage and do not affect the validity of the pipeline that follows.
 
 \subsection{Conversion to flat patches and saved prior datasets}
 \label{sec:data_savedpriors}
@@ -560,16 +587,16 @@ We collect here, in one place, the full sequence of transformations applied to e
 
 \paragraph{Per-realisation pipeline.} For a single full-sky realisation of $f$ or $x$, the transformations are applied in the following fixed order:
 \begin{enumerate}[leftmargin=2.0em,itemsep=0.1em]
-  \item \emph{Generate} a $(T,Q,U)$ HEALPix map at $N_{\rm side}=512$ in $\mu\mathrm{K}_{\rm CMB}$, including all relevant transfer functions: for $p(f)$, beam $B_\ell$ and HEALPix pixel windows $P_\ell^{T,P}$ are applied internally by \texttt{simulate\_cmb\_tqu\_from\_cls} (Sec.~\ref{sec:data_prior_f}); for $p(x)$, the random $\mathrm{SO}(3)$ rotation is applied first and then the spin-correct $10'$ Gaussian beam via \texttt{healpy.smoothing} (Sec.~\ref{sec:data_prior_x}).
+  \item \emph{Generate} a $(T,Q,U)$ HEALPix map at $N_{\rm side}=512$ in $\mu\mathrm{K}_{\rm CMB}$, including all relevant transfer functions. For $p(f)$, the default lensing strategy is the curved-sky lenspyx remap of Sec.~\ref{sec:data_prior_f}: an independent unlensed CMB realisation $(a^T,a^E,a^B)$ is drawn from the unlensed CAMB spectra together with an independent realisation $\phi_{LM}$ of the lensing potential, the unlensed sky is gravitationally lensed by $\phi$ on the curved sphere, and the common Gaussian beam $B_\ell$ and HEALPix pixel windows $P_\ell^{T,P}$ are applied in harmonic space to the lensed map. The legacy Gaussian-from-lensed-$C_\ell$ path shares the same beam-and-pixel-window step and remains available as an ablation control. For $p(x)$, each realisation re-seeds PySM's small-scale random number generator and instantiates a fresh \texttt{Sky}, so that the small-scale Galactic structure is statistically independent across realisations (Sec.~\ref{sec:data_prior_x}); the resulting full-sky map is rotated by a uniform $\mathrm{SO}(3)$ element and then propagated through the same harmonic-space beam-and-pixel-window step used for $p(f)$, so that the effective transfer functions of the two priors are identical by construction.
   \item \emph{Patch extraction} via \texttt{\_extract\_random\_patches}: a target of $N_{\rm patches/map}$ flat-sky patches is collected by rejection sampling, with candidate centres restricted to mask-clean HEALPix pixels and the full $64\!\times\!64$ projected footprint required to satisfy $M\!\geq\!0.9$ (Sec.~\ref{sec:data}). Each accepted patch is the output of \texttt{\_project\_patch\_tqu} with \texttt{rotate\_pol=True}, which scalar-resamples $T$, scalar-resamples $(Q,U)$, and then spin-2 rotates $(Q,U)$ to the local patch frame using a numerically-evaluated $\psi(\hat n)$ (Sec.~\ref{sec:flatsky}); non-finite values introduced at patch edges are replaced by zero.
   \item \emph{Concatenation} of the per-realisation patch banks into a single array of shape $(N_{\rm patches},3,64,64)$ with $N_{\rm patches}=N_{\rm maps}\!\times\!N_{\rm patches/map}$, dtype \texttt{float32}, channel order $(T,Q,U)$.
 \end{enumerate}
 
-\paragraph{Split and per-channel standardisation.} The concatenated array is then passed to \texttt{\_split\_and\_normalize}, which:
+\paragraph{Train/validation split by map index.} The split is performed at the level of \emph{full-sky realisations}, not at the level of individual patches. Concretely, the $N_{\rm maps}$ underlying full-sky realisations are first shuffled with a deterministic seed and partitioned $90/10$ into a training set of $N_{\rm maps}^{\rm train}$ realisations and a validation set of $N_{\rm maps}^{\rm val}$ realisations; the corresponding per-realisation patch banks are then concatenated separately into $\texttt{train\_raw}$ and $\texttt{val\_raw}$. This is essential. A patch-level split would routinely place patches drawn from the \emph{same} underlying realisation into both the training and validation sets, in which case the validation set would inherit the large-scale Fourier modes already seen at training time (a non-trivial fraction of the patch power lies at $\ell\!\lesssim\!\pi/L\!\approx\!50$, where $L$ is the patch extent). The validation diagnostics would then systematically underestimate the generalisation error, and any spectral checkpoint selection driven by validation metrics would be biased. Splitting by realisation enforces statistical independence between the two splits at all scales.
+
+\paragraph{Per-channel standardisation.} The two raw arrays are then passed through a deterministic per-channel affine standardisation:
 \begin{enumerate}[leftmargin=2.0em,itemsep=0.1em]
-  \item shuffles all patch indices once with a deterministic seed (\texttt{shuffle\_seed});
-  \item splits the shuffled array $90/10$ into \texttt{train\_raw} and \texttt{val\_raw};
-  \item computes per-channel statistics
+  \item compute per-channel statistics
   \begin{equation}
     \mu_c = \mathrm{mean}_{(\rm patch,\,x,\,y)}(\texttt{train\_raw}_c),
     \qquad
@@ -577,7 +604,8 @@ We collect here, in one place, the full sequence of transformations applied to e
     \qquad c\in\{T,Q,U\},
   \end{equation}
   on the training split only, with $\sigma_c$ floored at $10^{-6}$ before inversion to guard against degenerate channels;
-  \item applies the affine map $\tilde X_c = (X_c-\mu_c)/\sigma_c$ to both splits to produce \texttt{train\_norm} and \texttt{val\_norm}.
+  \item apply the affine map $\tilde X_c = (X_c-\mu_c)/\sigma_c$ to both splits to produce \texttt{train\_norm} and \texttt{val\_norm};
+  \item shuffle the patches \emph{within} each split, with an independent seed, to break the per-realisation block ordering inherited from the by-map concatenation.
 \end{enumerate}
 
 \paragraph{On-disk format.} The two priors are written to disk in compressed NumPy archives,
@@ -610,9 +638,488 @@ This concludes the data description. Everything entering the diffusion-model tra
 
 
 
-\section{Diffusion model and flow matching}
+\section{Deterministic flow matching for patch-based CMB priors}
+\label{sec:fm}
 
+The remainder of this note is devoted to the generative-model component of the pipeline. We learn the priors $p(f)$ and $p(x)$ on the standardised patch space
+\[
+  \xvec\in\Ndata,\qquad D = C\,H\,W = 3\!\times\!64\!\times\!64 = 12{,}288,
+\]
+by training, separately for each prior, a continuous-time generative model that transports samples from a tractable base distribution $\pinit=\mathcal N(0,I_D)$ to the empirical patch distribution $\pdata$ along an ODE driven by a learned vector field. We use the \emph{deterministic} flow-matching formulation of \cite{lipman2023flowmatching,liu2022rectified,albergo2023interpolants}, which makes sampling a noiseless map from base noise to data and is therefore the natural choice for an analytic prior to be plugged into a downstream posterior sampler with explicit likelihood gradients (Sec.~\ref{sec:fm_sample_pipeline}). For completeness we also explain how the same machinery degenerates, with $\sigma>0$, into the score-augmented SDE family that includes denoising diffusion as a special case, but emphasise that the production model in this work is run as a pure deterministic flow.
 
+\subsection{Mathematical formalism: probability paths and flow matching}
+\label{sec:fm_formalism}
+
+\subsubsection{Probability paths and flow models}
+
+\begin{definition}[Probability path]
+\label{def:prob_path}
+A \emph{probability path} on $\Ndata$ is a continuous family of probability densities $\{p_t\}_{t\in[0,1]}$ that interpolates between a tractable base $p_0=\pinit$ and the data distribution $p_1=\pdata$. We write $p_t(\xvec)$ for the density of the marginal at time $t$.
+\end{definition}
+
+\begin{definition}[Marginal velocity field]
+\label{def:marg_vf}
+A \emph{marginal velocity field} for the probability path $\{p_t\}$ is a measurable map $u:[0,1]\!\times\!\Ndata\!\to\!\Ndata$ such that the deterministic ODE
+\begin{equation}
+  \xvec_0\sim\pinit,
+  \qquad
+  \frac{\dd \xvec_t}{\dd t} = u_t(\xvec_t)
+  \label{eq:flow_ode}
+\end{equation}
+generates $\xvec_t\sim p_t$ for every $t\in[0,1]$.
+\end{definition}
+
+The fundamental link between the path $\{p_t\}$ and the field $u_t$ is the continuity equation, which expresses local conservation of probability along the flow:
+\begin{equation}
+  \partial_t p_t(\xvec) \;+\; \nabla_{\xvec}\!\cdot\!\bigl[u_t(\xvec)\,p_t(\xvec)\bigr] \;=\; 0,
+  \qquad t\in[0,1],
+  \label{eq:continuity}
+\end{equation}
+\emph{interpreted as a partial differential equation in the distributional sense} \cite{lipman2023flowmatching}. Conversely, given any path $\{p_t\}$ for which Eq.~(\ref{eq:continuity}) admits a smooth solution $u_t$ with $u_t(\xvec)$ bounded, the ODE in Eq.~(\ref{eq:flow_ode}) defines the unique flow $\psi_t:\Ndata\to\Ndata$ such that $\psi_t(\xvec_0)\sim p_t$ for $\xvec_0\sim\pinit$. \emph{Sampling from $\pdata$ then reduces to numerical integration of Eq.~(\ref{eq:flow_ode}) up to $t=1$.}
+
+The strategic choice of \cite{lipman2023flowmatching} is to design the path $\{p_t\}$ first, then \emph{learn} $u_t$ by regression. The difficulty is that even when $\{p_t\}$ is given by a closed-form recipe, the marginal $p_t$ is in general only available through a high-dimensional integral over the data distribution and the generating noise. Direct simulation-based regression of $u_t$ is therefore intractable. The \emph{conditional flow-matching} construction circumvents this by introducing a conditioning variable.
+
+\subsubsection{Conditional probability path and the marginalisation theorem}
+
+\begin{definition}[Conditional probability path]
+\label{def:cond_path}
+Let $q$ be a fixed distribution on a measurable conditioning space $\mathcal Z$. A \emph{conditional probability path} indexed by $q$ is a family $p_t(\xvec\mid\zvec)$ of densities on $\Ndata$, parametrised by $\zvec\sim q$, together with a \emph{conditional velocity field} $u_t(\xvec\mid\zvec)$ that satisfies the conditional continuity equation
+\begin{equation}
+  \partial_t p_t(\xvec\mid\zvec) + \nabla_{\xvec}\!\cdot\!\bigl[u_t(\xvec\mid\zvec)\,p_t(\xvec\mid\zvec)\bigr] = 0
+  \qquad \forall\,\zvec\in\mathcal Z.
+  \label{eq:cond_continuity}
+\end{equation}
+\end{definition}
+
+We take the conditioning distribution to be the data distribution itself, $q=\pdata$, and design $p_t(\xvec\mid\zvec)$ so that $p_0(\xvec\mid\zvec) = \pinit(\xvec)$ for every $\zvec$ and $p_1(\xvec\mid\zvec) = \delta(\xvec-\zvec)$ in the distributional sense. The marginal path is then recovered by
+\begin{equation}
+  p_t(\xvec) = \int_{\mathcal Z} p_t(\xvec\mid\zvec)\,\pdata(\zvec)\,\dd\zvec,
+  \label{eq:marg_path}
+\end{equation}
+and a direct consequence of integrating Eq.~(\ref{eq:cond_continuity}) against $\pdata(\zvec)\,\dd\zvec$ is the following marginalisation theorem.
+
+\begin{theorem}[Marginal velocity field; \cite{lipman2023flowmatching}]
+\label{thm:marg_vf}
+For any conditional probability path satisfying Definition~\ref{def:cond_path}, the marginal path Eq.~(\ref{eq:marg_path}) admits the marginal velocity field
+\begin{equation}
+  u_t(\xvec) \;=\; \int_{\mathcal Z}
+                u_t(\xvec\mid\zvec)\,
+                \frac{p_t(\xvec\mid\zvec)\,\pdata(\zvec)}{p_t(\xvec)}\,\dd\zvec
+            \;=\; \EE_{\zvec\sim p_t(\zvec\mid\xvec)}\bigl[u_t(\xvec\mid\zvec)\bigr],
+  \label{eq:marg_vf}
+\end{equation}
+with $p_t(\zvec\mid\xvec) \propto p_t(\xvec\mid\zvec)\,\pdata(\zvec)$ the time-$t$ posterior of $\zvec$ given $\xvec$.
+\end{theorem}
+
+Equation~(\ref{eq:marg_vf}) is fundamental: it shows that the unknown marginal velocity field is the posterior expectation of a closed-form quantity. The minimum-mean-square-error (MMSE) estimator of $u_t(\xvec)$ given $\xvec$ is therefore precisely Eq.~(\ref{eq:marg_vf}), i.e.\ the unique minimiser of the regression
+\begin{equation}
+  \min_{f}\;\EE_{t,\zvec,\xvec\mid\zvec}\!\bigl[\|f(\xvec,t) - u_t(\xvec\mid\zvec)\|^2\bigr]
+  \quad\text{is}\quad
+  f^\star(\xvec,t) = u_t(\xvec).
+  \label{eq:mmse}
+\end{equation}
+
+\subsubsection{The conditional flow-matching loss}
+
+Theorem~\ref{thm:marg_vf} and Eq.~(\ref{eq:mmse}) suggest a tractable training objective. We introduce a parametric vector field $\uvec_t^{\thetavec}:\Ndata\!\times\![0,1]\to\Ndata$ (a neural network with parameters $\thetavec$, see Sec.~\ref{sec:fm_arch}) and minimise the \emph{conditional flow-matching loss}
+\begin{equation}
+  \boxed{\;\mathcal L_{\rm CFM}(\thetavec)
+  \;=\;
+  \EE_{t\sim\mathcal U[0,1]}\,
+  \EE_{\zvec\sim\pdata}\,
+  \EE_{\xvec\sim p_t(\cdot\mid\zvec)}
+  \!\left[\,\bigl\|\uvec_t^{\thetavec}(\xvec) - u_t(\xvec\mid\zvec)\bigr\|^2\,\right].\;}
+  \label{eq:cfm}
+\end{equation}
+
+\begin{proposition}[Equivalence of marginal and conditional flow matching]
+\label{prop:fm_equiv}
+Let
+\begin{equation}
+  \mathcal L_{\rm FM}(\thetavec) = \EE_{t,\xvec\sim p_t}\bigl[\|\uvec_t^{\thetavec}(\xvec)-u_t(\xvec)\|^2\bigr]
+\end{equation}
+be the (intractable) marginal flow-matching loss. Then $\mathcal L_{\rm CFM}(\thetavec) - \mathcal L_{\rm FM}(\thetavec)$ is a constant independent of $\thetavec$, and consequently
+\[
+  \nabla_{\thetavec}\,\mathcal L_{\rm CFM}(\thetavec)
+  = \nabla_{\thetavec}\,\mathcal L_{\rm FM}(\thetavec).
+\]
+In particular, the unique global minimiser of $\mathcal L_{\rm CFM}$ over the population of all measurable maps satisfies $\uvec^\star_t(\xvec) = u_t(\xvec)$ almost everywhere along the marginal path.
+\end{proposition}
+
+The proof is a direct consequence of Theorem~\ref{thm:marg_vf}: the cross-term $\EE\,[\uvec_t^{\thetavec}(\xvec)\!\cdot\!u_t(\xvec\mid\zvec)]$ in $\mathcal L_{\rm CFM}$ equals $\EE\,[\uvec_t^{\thetavec}(\xvec)\!\cdot\!u_t(\xvec)]$ once the inner expectation over $\zvec$ is evaluated with $p_t(\zvec\mid\xvec)$, while the difference $\|u_t(\xvec\mid\zvec)\|^2 - \|u_t(\xvec)\|^2$ is $\thetavec$-independent. Proposition~\ref{prop:fm_equiv} is what makes the entire flow-matching programme tractable: \emph{minimising a closed-form, low-variance regression target with the same gradient as the intractable marginal regression yields a network whose posterior-mean prediction is the marginal velocity field that drives Eq.~(\ref{eq:flow_ode}).}
+
+Conditional flow matching is therefore a generalisation of the classical denoising score-matching argument of \cite{vincent2011dsm,song2020scorematching}, replacing the score $\nabla_{\xvec}\log p_t(\xvec)$ by the velocity $u_t(\xvec)$. Both quantities are MMSE projections of a closed-form conditional onto $\xvec$.
+
+\subsubsection{Score--velocity correspondence and the deterministic limit}
+
+For any conditional path one can also define the conditional score $s_t(\xvec\mid\zvec) = \nabla_{\xvec}\log p_t(\xvec\mid\zvec)$ and, applying Theorem~\ref{thm:marg_vf}-style marginalisation, show that the marginal score $s_t(\xvec)=\nabla_{\xvec}\log p_t(\xvec)$ is similarly given by a posterior expectation. For the Gaussian conditional paths used in this work (Sec.~\ref{sec:fm_path}), the marginal velocity field and the marginal score are linked by a closed-form linear identity
+\begin{equation}
+  u_t(\xvec) = \Bigl(\beta_t^2\,\tfrac{\dot\alpha_t}{\alpha_t} - \dot\beta_t\,\beta_t\Bigr)\,s_t(\xvec)
+              + \tfrac{\dot\alpha_t}{\alpha_t}\,\xvec,
+  \label{eq:score_to_velocity}
+\end{equation}
+which means that learning $u_t$ and learning $s_t$ are equivalent up to a deterministic post-hoc rescaling \cite{lipman2023flowmatching}. This identity also explains why the entire family of denoising diffusion models \cite{ho2020ddpm,song2021sde} can be viewed as a special case of flow matching with a particular schedule choice and a fixed reparametrisation of the regression target.
+
+For \emph{any} smooth $\sigma_t\geq 0$, the SDE
+\begin{equation}
+  \dd \xvec_t = \Bigl[u_t(\xvec_t) + \tfrac{\sigma_t^{\,2}}{2}\,s_t(\xvec_t)\Bigr]\,\dd t \;+\; \sigma_t\,\dd \bm W_t,
+  \qquad
+  \xvec_0\sim\pinit,
+  \label{eq:flow_sde}
+\end{equation}
+generates the same marginals $\{p_t\}$ as the deterministic ODE in Eq.~(\ref{eq:flow_ode}) (this is a textbook consequence of the Fokker--Planck equation; see Theorem~17 of \cite{lipman2023flowmatching}). The deterministic flow corresponds to $\sigma_t\equiv 0$ and the variance-preserving DDPM SDE corresponds to a particular non-zero schedule of $\sigma_t$. The two ends of this family are mathematically equivalent statements about the same path $\{p_t\}$, but they have very different practical implications. We discuss this trade-off and our deterministic-flow choice next.
+
+\subsubsection{Why deterministic flow matching for this work}
+
+We sample exclusively from the deterministic ODE flow ($\sigma_t\equiv 0$), and use the score-augmented SDE in Eq.~(\ref{eq:flow_sde}) only as a theoretical scaffolding to relate our framework to denoising diffusion. Three reasons motivate this choice.
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
+  \item \emph{Calibrated, gradient-friendly priors for posterior sampling.} The downstream goal of the project (Sec.~\ref{sec:intro}) is component separation by joint sampling of $(f,x)$ from $p(f,x\mid y)\propto p(y\mid f,x)\,p(f)\,p(x)$. The natural posterior sampler in this setting is a guided ODE that integrates the prior velocity field plus a likelihood-gradient correction $\nabla_{(f,x)}\log p(y\mid f,x)$ at each step \cite{chung2023dps,saharia2022sr3}. A deterministic flow gives a smooth, fully differentiable map from base noise to sample, so the likelihood-gradient guidance never collides with extra stochastic noise injected by the sampler itself.
+  \item \emph{Lower-variance training and sampling.} For a Gaussian conditional path with a smooth schedule, the conditional velocity target $u_t(\xvec\mid\zvec)$ has variance bounded by a $t$-independent constant, while the equivalent score target diverges as $\beta_t\to 0$ (see Sec.~\ref{sec:fm_path}). The CFM loss therefore avoids the per-time-bin reweighting that DDPM-style score matching needs near the data end of the path \cite{ho2020ddpm,karras2022elucidating}. Empirically, this manifests as smaller training-loss variance and more stable validation diagnostics (Sec.~\ref{sec:fm_train}).
+  \item \emph{Half the network evaluations at sampling time.} Because the flow is deterministic, second-order ODE solvers such as Heun (Sec.~\ref{sec:fm_sample_pipeline}) achieve $\mathcal O(h^3)$ local error with two velocity-field evaluations per step. The corresponding stochastic SDE solvers can only reach $\mathcal O(h^2)$ at the same compute budget without specialised splitting schemes.
+\end{enumerate}
+The price for the deterministic choice is that the sampler is a one-to-one map: distinct base draws $\xvec_0\sim\pinit$ are mapped to distinct samples, and there is no in-sampler stochasticity that could mask a residual training imperfection by adding noise. We compensate by using a sufficiently fine integration grid and by validating with the spectral diagnostics of Sec.~\ref{sec:fm_diagnostics}.
+
+\subsection{Probability path: Gaussian interpolant with linear schedule}
+\label{sec:fm_path}
+
+We instantiate the conditional path of Definition~\ref{def:cond_path} with the family of \emph{Gaussian conditional paths} parametrised by two real-valued schedule functions $\alpha,\beta\in C^1([0,1])$:
+\begin{equation}
+  \boxed{\;p_t(\xvec\mid\zvec) \;=\; \mathcal N\!\bigl(\xvec\,;\,\alpha_t\zvec,\;\beta_t^{\,2}\,I_D\bigr),\;}
+  \qquad
+  \alpha_t,\beta_t\geq 0,
+  \label{eq:gauss_cond_path}
+\end{equation}
+with boundary conditions $\alpha_0=0,\;\alpha_1=1$ and $\beta_0=1,\;\beta_1=0$ that enforce $p_0(\cdot\mid\zvec)=\pinit=\mathcal N(0,I_D)$ and $p_1(\cdot\mid\zvec)=\delta(\cdot-\zvec)$. The marginal of Eq.~(\ref{eq:gauss_cond_path}) under $\zvec\sim\pdata$ is the noisy data distribution $p_t(\xvec)=\int p_t(\xvec\mid\zvec)\pdata(\zvec)\dd\zvec$, which interpolates between the standard Gaussian at $t=0$ and $\pdata$ at $t=1$.
+
+\subsubsection{Conditional velocity field and noise reparametrisation}
+
+A draw from $p_t(\cdot\mid\zvec)$ is obtained by the reparametrisation
+\begin{equation}
+  \xvec_t = \alpha_t\,\zvec + \beta_t\,\e, \qquad \e\sim\mathcal N(0,I_D),
+  \label{eq:noising}
+\end{equation}
+which directly yields $\xvec_t\sim\mathcal N(\alpha_t\zvec,\beta_t^2 I_D)$. Differentiating Eq.~(\ref{eq:noising}) in $t$ along the deterministic interpolant (i.e.\ holding $\zvec$ and $\e$ fixed) gives the canonical \emph{conditional velocity field} for this family,
+\begin{equation}
+  u_t(\xvec_t\mid\zvec) = \dot\alpha_t\,\zvec + \dot\beta_t\,\e,
+  \label{eq:cond_vf_noise}
+\end{equation}
+which we may equivalently rewrite in $\xvec$-only form by eliminating $\e=(\xvec_t-\alpha_t\zvec)/\beta_t$:
+\begin{equation}
+  u_t(\xvec\mid\zvec)
+  \;=\; \Bigl(\dot\alpha_t - \tfrac{\dot\beta_t}{\beta_t}\,\alpha_t\Bigr)\zvec + \tfrac{\dot\beta_t}{\beta_t}\,\xvec.
+  \label{eq:cond_vf}
+\end{equation}
+The conditional score and the conditional posterior mean (\emph{a.k.a.}\ Tweedie's formula) are equally explicit:
+\begin{equation}
+  s_t(\xvec\mid\zvec) = \nabla_{\xvec}\log p_t(\xvec\mid\zvec) = -\frac{\xvec-\alpha_t\zvec}{\beta_t^{\,2}},
+  \qquad
+  \EE\bigl[\zvec\mid\xvec_t\!=\!\xvec\bigr]
+  = \tfrac{\xvec-\beta_t\,\EE[\e\mid\xvec_t\!=\!\xvec]}{\alpha_t}.
+  \label{eq:cond_score}
+\end{equation}
+\emph{Crucially}, all three quantities -- $u_t(\xvec\mid\zvec)$, $s_t(\xvec\mid\zvec)$, and the linear maps that recover $\zvec$ from $(\xvec,\e)$ or from $(\xvec,u)$ -- are closed-form once $(\alpha_t,\beta_t,\dot\alpha_t,\dot\beta_t)$ are known. Conditional flow matching can therefore be implemented with no extra simulation cost beyond a single sample of $\zvec$ and $\e$ per training step.
+
+A direct consequence of Theorem~\ref{thm:marg_vf} and Eq.~(\ref{eq:cond_vf_noise}) is the following.
+
+\begin{proposition}[Marginal velocity for Gaussian paths]
+\label{prop:marg_vf_gauss}
+For the Gaussian conditional path of Eq.~(\ref{eq:gauss_cond_path}), the marginal velocity field admits the equivalent representations
+\begin{equation}
+  u_t(\xvec) \;=\; \EE\bigl[\dot\alpha_t\,\zvec + \dot\beta_t\,\e \,\big|\, \xvec_t=\xvec\bigr]
+            \;=\; \Bigl(\dot\alpha_t - \tfrac{\dot\beta_t}{\beta_t}\alpha_t\Bigr)\,\EE[\zvec\mid\xvec_t=\xvec] + \tfrac{\dot\beta_t}{\beta_t}\,\xvec,
+\end{equation}
+i.e.\ it is an affine combination of the data-posterior mean $\EE[\zvec\mid\xvec_t]$ and $\xvec_t$, with coefficients fixed by the schedule.
+\end{proposition}
+
+This proposition makes it transparent that learning the velocity field is, up to a known affine map, the same as learning the data-posterior mean: a network that achieves $\uvec_t^{\thetavec}(\xvec)\approx u_t(\xvec)$ implicitly performs MMSE denoising of $\xvec_t$ at every $t$, which is the standard interpretation of denoising score matching \cite{vincent2011dsm,karras2022elucidating}.
+
+\subsubsection{Linear schedule}
+
+We adopt the \emph{linear schedule}
+\begin{equation}
+  \boxed{\;\alpha_t = t,\qquad \beta_t = 1-t,\qquad \dot\alpha_t=1,\qquad \dot\beta_t=-1,\;}
+  \label{eq:linear_schedule}
+\end{equation}
+which is the canonical rectified-flow / linear-interpolant choice of \cite{liu2022rectified,albergo2023interpolants,lipman2023flowmatching}. Substituting into Eq.~(\ref{eq:cond_vf_noise}) yields the strikingly simple form of the conditional velocity target,
+\begin{equation}
+  u_t(\xvec_t\mid\zvec) \;=\; \zvec - \e,
+  \qquad
+  \xvec_t = t\,\zvec + (1-t)\,\e,
+  \label{eq:linear_target}
+\end{equation}
+i.e.\ a \emph{$t$-independent} vector pointing from the noise sample $\e$ to the data sample $\zvec$. Geometrically, the conditional flow associated with the linear schedule is the segment $t\mapsto t\zvec+(1-t)\e$, traversed at constant velocity $\zvec-\e$. The marginal flow that the network learns is the optimal-transport-like quantity that interpolates the two distributions in expectation \cite{liu2022rectified}.
+
+The linear schedule has three properties that make it the natural default for direct flow matching on standardised data.
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
+  \item \emph{$t$-independent regression target.} The right-hand side of Eq.~(\ref{eq:linear_target}) does not depend on $t$ explicitly (the $t$-dependence enters only through $\xvec_t$). The CFM loss therefore has homogeneous per-time-bin variance and uniform sampling $t\sim\mathcal U[0,1]$ is unbiased with respect to all multipoles of the patch power spectrum -- no per-$t$ reweighting is required, which simplifies the optimisation.
+  \item \emph{Bounded variance throughout the path.} The marginal variance is $\Var(\xvec_t\mid\zvec)=\beta_t^2=(1-t)^2$ at any $t$, with a controlled departure from the variance-preserving condition: $\alpha_t^2+\beta_t^2=1-2t(1-t)\in[\tfrac12,1]$. After the per-channel standardisation of Sec.~\ref{sec:data_savedpriors} the data has unit variance per channel, so $\Var(\xvec_t)\leq 1$ at every $t$ and the network never sees activations beyond the dynamic range it was initialised for.
+  \item \emph{Endpoint singularity is harmless.} The factor $1/\beta_t$ in the conditional score and in the alternative form of $u_t$ in Eq.~(\ref{eq:cond_vf}) is finite for any $t<1$, and at sampling time we integrate strictly inside the open interval $(0,1)$ and analytically close the residual gap (Sec.~\ref{sec:fm_sample_pipeline}).
+\end{enumerate}
+A trigonometric schedule $\alpha_t=\sin(\pi t/2)$, $\beta_t=\cos(\pi t/2)$ -- which is exactly variance-preserving, $\alpha_t^2+\beta_t^2=1$, and aligns with the canonical variance-preserving DDPM family of \cite{ho2020ddpm,song2021sde} -- and a bounded variant that bounds $\beta_t,\alpha_t\geq 0.02$ are also implemented as alternative regularisers; we have verified that they reach the same spectral validation score as the linear schedule in the present setting and report only the linear-schedule production runs below.
+
+\subsubsection{Implications for training and sampling}
+
+Equations~(\ref{eq:cond_vf})--(\ref{eq:cond_score}) collectively imply that, for the Gaussian conditional path with the linear schedule, the training pipeline reduces to a single line of code -- sample $(\zvec,\e,t)$, build $\xvec_t=t\zvec+(1-t)\e$, regress $\uvec_t^{\thetavec}(\xvec_t)$ towards $\zvec-\e$ -- and the sampling pipeline reduces to integrating $\dd\xvec_t/\dd t = \uvec_t^{\thetavec}(\xvec_t)$ from $\xvec_0\sim\pinit$. Both operations are deterministic given the random draws made at training time; in particular, sampling has \emph{no} extra randomness beyond the initial $\xvec_0$, which is the formal expression of the deterministic-flow choice of Sec.~\ref{sec:fm_formalism}. The next subsections detail the parametric form of $\uvec_t^{\thetavec}$, the precise loss function used to train it, and the numerical integration of the resulting ODE.
+
+\subsection{Network architecture}
+\label{sec:fm_arch}
+
+The unknown marginal velocity field $u_t:\Ndata\!\times\![0,1]\to\Ndata$ is parametrised by a deep neural network $\uvec_t^{\thetavec}$ with parameters $\thetavec$. The architecture is a translation-equivariant U-Net \cite{ronneberger2015unet,ho2020ddpm}, adapted to the three-channel $(T,Q,U)$ patch geometry by an explicit $\mathrm{SO}(2)$-aware data augmentation (Sec.~\ref{sec:fm_train}) and by a Karras-style \cite{karras2022elucidating} time-embedding pathway. The model is unconditional in the sense that the only side information presented to the network is the time variable $t\in[0,1]$. Inputs and outputs share the shape $(B,3,64,64)$, where $B$ is the mini-batch size and the three channels are the standardised Stokes parameters of Sec.~\ref{sec:data_savedpriors}.
+
+\subsubsection{Why a U-Net for CMB patches}
+
+The choice of a convolutional U-Net is motivated by three structural properties of the patch data.
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
+  \item \emph{Approximate translation invariance.} On flat patches of angular extent $L\sim 7^\circ$, the gnomonic projection error is $\mathcal O((L/\mathrm{rad})^2)\sim 10^{-2}$ (Sec.~\ref{sec:flatsky}), so the patch statistics inherit the translation invariance of the underlying spherically-isotropic field to better than one percent. Convolutional architectures realise this symmetry exactly.
+  \item \emph{Multi-scale structure of the power spectrum.} The patch power spectrum spans approximately four decades between the largest patch mode and the patch Nyquist multipole, with several physical features (acoustic peaks in $TT$, the polarisation peak structure in $EE$, the lensing-induced $BB$ tail) at well-separated angular scales. The pyramidal encoder--decoder topology of a U-Net with skip connections is natively well-suited to producing a velocity field that simultaneously captures all of these scales.
+  \item \emph{Rotational/reflection equivariance up to spin.} The flat-sky polarisation field is exactly $\mathrm{D}_4$-equivariant up to the spin-2 sign rule for $(Q,U)$ (a $90^\circ$ rotation flips both signs; an axis reflection flips one). This is exploited at the data-augmentation level rather than baked into the layers (Sec.~\ref{sec:fm_train}), but the U-Net's translation-equivariant convolutions make this augmentation effective in practice.
+\end{enumerate}
+
+\subsubsection{Macro-structure}
+
+The U-Net has a five-stage encoder--bottleneck--decoder layout with channel schedule $C=(32,64,128,256)$ and two residual layers per stage:
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
+  \item A \emph{stem} that lifts the three-channel input patch to $C_0=32$ feature channels via a single $3\!\times\!3$ convolution.
+  \item An \emph{encoder} of three downsampling stages: at stage $\ell$ the feature map is processed by two residual layers at width $C_\ell$ and then halved in spatial extent by a strided $3\!\times\!3$ convolution that simultaneously projects to width $C_{\ell+1}$. The bottleneck feature map is $(B,256,8,8)$.
+  \item A \emph{midcoder} of two residual layers at the bottleneck width $C_3=256$, which globally mixes the $64$ bottleneck pixels.
+  \item A \emph{decoder} that mirrors the encoder: at each stage the bottleneck output is added to the corresponding encoder skip (additive skips, not concatenations), upsampled by a factor of two by bilinear interpolation, and refined by two residual layers at the next-lower width.
+  \item An \emph{output head} that projects the final $C_0$-channel feature map back to a three-channel output, producing the predicted velocity field $\uvec_t^{\thetavec}(\xvec)$.
+\end{enumerate}
+
+\subsubsection{Time conditioning}
+
+The time variable enters through a learnable Fourier feature embedding \cite{karras2022elucidating}: a fixed-dimension vector
+\begin{equation}
+  \mathrm{Embed}(t) = \sqrt{2}\bigl[\sin(2\pi\,t\,\bm{w}),\;\cos(2\pi\,t\,\bm{w})\bigr]\in\mathbb R^{d_t},\qquad d_t=64,
+  \label{eq:fourier_emb}
+\end{equation}
+where the frequencies $\bm{w}\in\mathbb R^{d_t/2}$ are trainable parameters initialised as $\bm w\sim\mathcal N(0,I)$. The embedding is then mapped, by a small two-layer perceptron with one hidden layer, to a per-channel bias $\bm h_\ell(t)\in\mathbb R^{C_\ell}$ at every stage $\ell$, and broadcast over the spatial dimensions before being added to the post-convolution feature map of every residual layer. This is a FiLM-style conditioning \cite{perez2018film} restricted to its additive component. Each residual layer has the form
+\begin{equation}
+  \xvec\;\mapsto\;\xvec + \mathrm{Block}_2\!\bigl(\mathrm{Block}_1(\xvec) + \bm h_\ell(t)\bigr),
+  \qquad
+  \mathrm{Block}_i = \mathrm{Conv}_{3\times 3}\circ\mathrm{GroupNorm}\circ\mathrm{SiLU},
+\end{equation}
+with GroupNorm \cite{wu2018groupnorm} to avoid batch-statistic instabilities and SiLU activations for smooth gradients. We do not use self-attention layers: at $64\!\times\!64$ resolution the receptive field of the bottleneck already covers the full patch, and we verified empirically that bottleneck attention did not measurably improve the spectral diagnostics of Sec.~\ref{sec:fm_diagnostics} while approximately doubling the per-step training cost.
+
+\subsubsection{Parameter count}
+
+With the channel schedule $C=(32,64,128,256)$ and two residual layers per stage, the network has $\sim 3.5$\,MiB of float-32 parameters. The patch resolution is moderate ($64\!\times\!64$), the model is unconditional, and the per-step compute is dominated by the convolutional backbone rather than the time-conditioning MLP, so training easily fits in $\!\lesssim\!4$\,GB of GPU memory at the production batch size $B=250$ used below.
+
+\subsection{Training: loss function, optimisation, and the role of each term}
+\label{sec:fm_train}
+
+\subsubsection{Loss function}
+
+We train the network $\uvec_t^{\thetavec}$ as a direct vector-field predictor by minimising the conditional flow-matching loss of Eq.~(\ref{eq:cfm}) augmented with two physics-aware auxiliary regularisers. The composite training objective is
+\begin{equation}
+  \boxed{\;
+  \mathcal L(\thetavec)
+  \;=\;
+  \mathcal L_{\rm CFM}(\thetavec)
+  \;+\;
+  \lambda_{x_0}\,\mathcal L_{x_0}(\thetavec)
+  \;+\;
+  \lambda_{\rm rad}\,\mathcal L_{\rm rad}(\thetavec).
+  \;}
+  \label{eq:total_loss}
+\end{equation}
+All three terms are computed from a single Monte-Carlo sample of the triplet $(\zvec,\e,t)$ at every minibatch step, with $\zvec\sim\pdata$ (a clean patch from the training split), $\e\sim\mathcal N(0,I_D)$, $t\sim\mathcal U[0,t_{\max}]$ ($t_{\max}=0.995$, see below), and $\xvec_t = t\zvec+(1-t)\e$. Each term is a different projection of the same underlying regression problem and addresses a different failure mode of an unregularised flow-matching estimator on patch-level CMB data.
+
+\paragraph{(i) Conditional flow-matching loss.}
+For the linear schedule, the closed-form target of Eq.~(\ref{eq:linear_target}) reduces the conditional regression to
+\begin{equation}
+  \mathcal L_{\rm CFM}(\thetavec)
+  \;=\;
+  \EE_{t,\zvec,\e}\Bigl[\,\bigl\|\uvec_t^{\thetavec}(\xvec_t)
+                  - (\zvec-\e)\bigr\|^2_2\,\Bigr].
+  \label{eq:cfm_linear}
+\end{equation}
+By Proposition~\ref{prop:fm_equiv} this is the canonical, simulation-free flow-matching objective: minimising it makes $\uvec_t^{\thetavec}(\xvec)$ converge to the marginal velocity $u_t(\xvec)$ of the path, which by Eq.~(\ref{eq:flow_ode}) drives the deterministic ODE that we subsequently integrate at sampling time. \emph{It is the only term strictly required for consistency of the generative model;} the next two terms are auxiliary regularisers that bias the optimisation towards solutions that better respect the second-order patch-level statistics that we ultimately care about.
+
+\paragraph{(ii) Posterior-mean (``$x_0$'') anchor.}
+Tweedie's identity for the Gaussian conditional path implies that the closed-form data-posterior mean reads
+\begin{equation}
+  \hat\zvec_{\thetavec}(\xvec_t,t)
+  \;=\;
+  \frac{\dot\beta_t\,\xvec_t - \beta_t\,\uvec_t^{\thetavec}(\xvec_t)}
+       {\alpha_t\dot\beta_t - \dot\alpha_t\,\beta_t},
+  \label{eq:x0_recon}
+\end{equation}
+i.e.\ for any predicted velocity $\uvec_t^{\thetavec}$ there is a deterministic linear map that returns an estimate $\hat\zvec_{\thetavec}$ of the clean patch underlying $\xvec_t$. The \emph{posterior-mean anchor} is the regression of this estimate against the true clean patch:
+\begin{equation}
+  \mathcal L_{x_0}(\thetavec) \;=\; \EE_{t,\zvec,\e}\!\bigl[\,\|\hat\zvec_{\thetavec}(\xvec_t,t) - \zvec\|^2_2\,\bigr].
+  \label{eq:x0_loss}
+\end{equation}
+Two remarks. First, $\mathcal L_{x_0}$ is mathematically redundant with $\mathcal L_{\rm CFM}$ at the global optimum -- both attain their minima exactly when $\uvec_t^{\thetavec}=u_t$ -- but they have different finite-sample variance profiles. Near $t\to 1$ the linear map of Eq.~(\ref{eq:x0_recon}) becomes nearly singular (the denominator scales as $1-t$ for the linear schedule), so $\mathcal L_{x_0}$ is dominated by mistakes made by the network at the data end of the path, where $\mathcal L_{\rm CFM}$ alone is comparatively insensitive. Second, since $\hat\zvec_{\thetavec}$ is a linear function of $\uvec_t^{\thetavec}$ with $t$-dependent coefficients, $\mathcal L_{x_0}$ is, at fixed schedule, exactly equivalent to $\mathcal L_{\rm CFM}$ with a $t$-dependent reweighting that increases towards $t=1$. We use $\lambda_{x_0}=0.10$, which we found to be the smallest value that visibly tightens the validation-time $x_0$-reconstruction loss without distorting the $\mathcal L_{\rm CFM}$ profile.
+
+\paragraph{(iii) Radial Fourier-power regulariser.}
+The third term is the central physics-aware regulariser of this work. Let $\mathcal F$ denote the unitary 2D discrete Fourier transform on the $64\!\times\!64$ patch grid; given a batch of $B$ network reconstructions $\{\hat\zvec_{\thetavec,i}\}$ of clean patches, define the per-mode batch-averaged power
+\begin{equation}
+  P_{\thetavec}(\bm k) = \frac{1}{B}\sum_{i=1}^B \bigl|\mathcal F[\hat\zvec_{\thetavec,i}]\bigr|^2(\bm k),
+  \qquad
+  P_{\rm data}(\bm k) = \frac{1}{B}\sum_{i=1}^B \bigl|\mathcal F[\zvec_i]\bigr|^2(\bm k),
+\end{equation}
+and the loss
+\begin{equation}
+  \mathcal L_{\rm rad}(\thetavec)
+  \;=\;
+  \frac{1}{|\mathcal K|}\sum_{\bm k\in\mathcal K}
+    \bigl[\,\log P_{\thetavec}(\bm k) - \log P_{\rm data}(\bm k)\,\bigr]^2,
+  \label{eq:radial_loss}
+\end{equation}
+where $\mathcal K$ runs over all FFT bins and all three Stokes channels. Three properties make Eq.~(\ref{eq:radial_loss}) a useful auxiliary objective.
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
+  \item \emph{Differentiability.} $\mathcal L_{\rm rad}$ is fully differentiable through the FFT and through the linear $x_0$-recovery of Eq.~(\ref{eq:x0_recon}), so it propagates gradients into $\thetavec$ at no additional simulation cost.
+  \item \emph{Logarithmic dynamic range matching.} Patch power spectra span approximately four decades between the largest patch mode and the patch Nyquist multipole. A linear MSE on $P(\bm k)$ would be entirely dominated by the few low-$\ell$ bins; the log-power form treats all scales symmetrically.
+  \item \emph{Alignment with the validation diagnostic.} The flat-sky $D_\ell$ comparison of Sec.~\ref{sec:fm_diagnostics} is a coarsely binned, radially averaged version of the same quantity. The training objective is therefore a finer-grained, per-bin surrogate for the validation metric, which avoids the standard adversary in score-based modelling where a low validation loss can coexist with a visibly biased generated power spectrum.
+\end{enumerate}
+We use $\lambda_{\rm rad}=0.10$.
+
+\subsubsection{Symmetry-aware data augmentation}
+
+The flat-sky polarisation field is $\mathrm{D}_4$-equivariant up to the spin-2 sign rule for $(Q,U)$: a $90^\circ$ rotation sends $(T,Q,U)\!\mapsto\!(T,-Q,-U)$ and a reflection across the $x$-axis sends $(T,Q,U)\!\mapsto\!(T,+Q,-U)$. At each training step we apply a uniformly drawn element of the dihedral group $\mathrm{D}_4$ to the clean batch $\{\zvec_i\}$ before constructing $\xvec_t$, with the corresponding spin-2 sign rule. This is exact at the angular scale of our patches (where curvature corrections to spherical isotropy are subdominant; Sec.~\ref{sec:flatsky}) and provides an exact $8\!\times$ multiplication of the effective training-set size at zero memory cost.
+
+\subsubsection{Time-sampling distribution}
+
+We draw the diffusion time $t$ uniformly on $[0,t_{\max}]$ with $t_{\max}=0.995$. The upper truncation avoids the $1/(1-t)$ singularity in the conditional score and preserves a one-step margin from the boundary that matches the integration grid used at sampling time (Sec.~\ref{sec:fm_sample_pipeline}); training and sampling distributions therefore see exactly the same support of $t$. For the linear schedule, the conditional target Eq.~(\ref{eq:linear_target}) is $t$-independent and the marginal patch variance varies by less than a factor of two across the path, so uniform sampling is unbiased with respect to all multipoles in expectation -- there is no schedule-induced reason to depart from $\mathcal U[0,t_{\max}]$.
+
+\subsubsection{Optimisation, gradient hygiene, and weight averaging}
+
+We optimise $\mathcal L(\thetavec)$ with AdamW \cite{loshchilov2019adamw} at base learning rate $10^{-4}$ and weight decay $10^{-4}$, with the gradient norm clipped to unity before each update to suppress the rare large-step events that arise from outlier $\xvec_t$ samples near $t=t_{\max}$. The learning rate is held constant for the duration of the production run and switches to a cosine-annealing schedule \cite{loshchilov2017sgdr} only in extended-duration follow-up experiments.
+
+We maintain an exponential moving average of the parameters, $\bar\thetavec_{n+1} = \rho\,\bar\thetavec_n + (1-\rho)\,\thetavec_{n+1}$ with $\rho=0.99$, and perform every evaluation pass (validation loss, training-time spectral diagnostic, post-training sampling) on the EMA copy. The first $300$ EMA updates are discarded for evaluation, since the running average is biased towards the random initialisation while the live parameters are still moving by $\mathcal O(1)$ per step. After the warmup, EMA weights are systematically smoother than live weights at the same training token count and substantially reduce the variance of the spectral diagnostic, in line with the empirical findings of \cite{karras2022elucidating,salimans2022progressive}.
+
+\subsubsection{Best-spectral checkpointing}
+
+The training-time monitoring loop periodically integrates the flow ODE on a small batch of validation initial conditions $\xvec_0\sim\pinit$, computes the binned flat-sky $D_\ell^{TT,EE,BB,TE}$ of the generated patches, and produces a scalar spectral score (the inverse mean log-power deviation between the generated and the validation spectra). The weights -- both live and EMA -- that achieve the best spectral score over the run are stored as a separate checkpoint and used at evaluation time. This is a principled deviation from training-loss-only checkpointing: in the small-patch regime the validation $\mathcal L_{\rm CFM}$ saturates well before the spectral diagnostic does, and the best-spectral weights consistently match the validation distribution more faithfully than the final-epoch weights at fixed compute.
+
+\subsubsection{Hyperparameter summary}
+
+Table~\ref{tab:fm_hparams} reports the production hyperparameters used for the runs in this work.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{ll}
+    \toprule
+    Hyperparameter & Value \\
+    \midrule
+    Schedule & Linear: $\alpha_t=t,\,\beta_t=1-t$ \\
+    $t$-sampling distribution & Uniform on $[0,\,t_{\max}]$, $t_{\max}=0.995$ \\
+    Sampling regime & deterministic flow, $\sigma=0$ \\
+    CFM loss weight & $1.0$ \\
+    $x_0$-anchor weight $\lambda_{x_0}$ & $0.10$ \\
+    Radial Fourier-power weight $\lambda_{\rm rad}$ & $0.10$ \\
+    Augmentation & $\mathrm{D}_4$ on $(T,Q,U)$ with spin-2 sign rule \\
+    Optimiser & AdamW, weight decay $10^{-4}$ \\
+    Base learning rate & $10^{-4}$ \\
+    Gradient clip & unit Frobenius norm \\
+    Mini-batch size & $250$ \\
+    Number of epochs & $200$ \\
+    LR schedule & constant in production; cosine-annealing reserved for $>1000$ epochs \\
+    EMA decay & $\rho=0.99$ \\
+    EMA evaluation warmup & $300$ steps \\
+    State clipping at sampling & $|\xvec|\!\leq\!5$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{Production hyperparameters for the deterministic flow-matching prior of this work, trained on the standardised patch dataset $p(f)$. The same configuration is used for the foreground prior $p(x)$ except for the choice of training dataset.}
+  \label{tab:fm_hparams}
+\end{table}
+
+\subsection{Sampling: deterministic ODE integration}
+\label{sec:fm_sample_pipeline}
+
+Once $\thetavec$ is trained, drawing samples from the learned prior reduces to numerically integrating the deterministic ODE
+\begin{equation}
+  \xvec_0\sim\pinit=\mathcal N(0,I_D),
+  \qquad
+  \frac{\dd\xvec_t}{\dd t} = \uvec_t^{\thetavec}(\xvec_t),
+  \qquad t\in[0,t_{\max}],
+  \label{eq:sampling_ode}
+\end{equation}
+with $t_{\max}=0.995$ as in training. The endpoint $\xvec_{t_{\max}}$ is then mapped to a clean-patch estimate $\hat\zvec$ by the linear posterior-mean projector of Eq.~(\ref{eq:x0_recon}). Because the deterministic flow has no in-sampler stochasticity, the entire procedure is a smooth, fully differentiable map from the base draw $\xvec_0\sim\pinit$ to the final patch -- a property that we will rely on for the downstream guided-posterior sampler of the component-separation pipeline.
+
+\subsubsection{Numerical integrator: Heun's second-order method}
+
+We use Heun's second-order ODE method on a uniform grid of $N_{\rm steps}=1200$ time steps. For step size $h$ and current state $(\xvec_t,t)$, Heun's method advances to $t+h$ via
+\begin{align}
+  \xvec_t^{\,\prime} &= \xvec_t + h\,\uvec_t^{\thetavec}(\xvec_t)
+    & \blacktriangleright\ \text{predictor (Euler step)} \\
+  \xvec_{t+h} &= \xvec_t + \tfrac{h}{2}\,\bigl[\uvec_t^{\thetavec}(\xvec_t)+\uvec_{t+h}^{\thetavec}(\xvec_t^{\,\prime})\bigr]
+    & \blacktriangleright\ \text{corrector (trapezoidal)}.
+\end{align}
+This achieves $\mathcal{O}(h^3)$ local truncation error against the $\mathcal{O}(h^2)$ of the plain Euler method, at the cost of two velocity-field evaluations per step. The choice over Euler is motivated by the spectral diagnostics of Sec.~\ref{sec:fm_diagnostics}: a first-order Euler integrator at the same compute budget produces a small but visible $\mathcal{O}(1\%)$ amplitude bias on the patch power spectrum at intermediate $\ell$, consistent with the standard analysis of \cite{karras2022elucidating}. With Heun the residual integrator bias is comparable to the cosmic-variance scatter of our finite ensemble of generated patches, and is therefore invisible in the validation diagnostic.
+
+\subsubsection{Terminal-state reconstruction}
+
+The integration is stopped one step short of the boundary, at $t_{\max}=0.995$, to avoid the $1/(1-t)$ singularity that the conditional vector field of the linear path acquires at $t=1$. The residual $1-t_{\max}=0.005$ is closed analytically by the linear posterior-mean estimator
+\begin{equation}
+  \hat\zvec
+  \;=\;
+  \frac{\dot\beta_{t_{\max}}\,\xvec_{t_{\max}} - \beta_{t_{\max}}\,\uvec_{t_{\max}}^{\thetavec}(\xvec_{t_{\max}})}
+       {\alpha_{t_{\max}}\,\dot\beta_{t_{\max}} - \dot\alpha_{t_{\max}}\,\beta_{t_{\max}}}
+  \;\overset{\text{linear}}{=}\;
+  \xvec_{t_{\max}} + (1-t_{\max})\,\uvec_{t_{\max}}^{\thetavec}(\xvec_{t_{\max}}),
+\end{equation}
+which is exact to first order in the residual. This is preferable to integrating the ODE all the way to $t=1$, because it avoids polluting the final state with the $\mathcal{O}((1-t)^{-1})$ amplification of any small per-step bias near the data end of the path.
+
+\subsubsection{Stability safeguards}
+
+Two minor numerical safeguards complete the sampler. (i) After every Heun step the state is element-wise clipped to $|\xvec_t|\leq 5$ in standardised units. The fraction of clipped components in production runs is below $10^{-3}$, so the clip is a soft safety net against rare, unphysical excursions of the ODE rather than an active constraint. (ii) The base draw $\xvec_0\sim\pinit$ uses a fixed seed so that the entire sampler is bit-reproducible given the trained checkpoint.
+
+\subsubsection{Production sampling configuration}
+
+For the figures shown below, we draw $N_{\rm gen}=64$ samples with $N_{\rm steps}=1200$, $t\in[0,0.995]$, $\sigma=0$ (deterministic flow), $|\xvec|\leq 5$ clipping, and the best-spectral checkpoint of Sec.~\ref{sec:fm_train}.
+
+\subsection{Diagnostics: validating the learned prior}
+\label{sec:fm_diagnostics}
+
+The natural figure of merit for a CMB-prior model is the agreement of the second moments (the patch power spectra) between the generated ensemble and an independent reference ensemble drawn from the same underlying physics. We use two independent reference ensembles to disentangle systematic biases in the trained model from systematic biases in the flat-sky estimator itself.
+
+\subsubsection{Reference ensembles}
+
+\begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
+  \item \emph{Validation patches.} The held-out validation split of the saved prior dataset (Sec.~\ref{sec:data_savedpriors}). These patches share the entire upstream pipeline -- CAMB spectra (with curved-sky lensing for $p(f)$), HEALPix pixelisation, beam, polarisation-aware pixel window, gnomonic projection, mask, per-channel standardisation -- with the training set, but are drawn from full-sky realisations that are statistically independent from the training realisations because of the by-map split. They are therefore a faithful empirical realisation of the target distribution $\pdata$ that the network is asked to learn.
+  \item \emph{Monte Carlo theory band.} An independent batch of clean-patch realisations is constructed from a freshly drawn ensemble of full-sky Gaussian CMB realisations, generated from the lensed CAMB spectra at the same beam, pixel window, and $N_{\rm side}$ as the training set, and processed through the identical patch-extraction and flat-sky estimator pipeline. This MC ensemble does \emph{not} pass through any neural network: the only difference between it and the validation ensemble is the absence of the lenspyx remap and of the foreground-side pipeline, both of which are irrelevant for the $TT/EE/TE$ comparison and dominate only the high-$\ell$ tail of $BB$ for $p(f)$.
+\end{enumerate}
+A feature of the generated ensemble that is also present in the MC theory band must be an artefact of the patch / flat-sky estimator pipeline rather than of the network; conversely, a feature that is present only in the generated band is a genuine bias of the trained prior.
+
+\subsubsection{\texorpdfstring{Flat-sky $D_\ell$ comparison: definition}{Flat-sky D\_ell comparison: definition}}
+
+For a batch $\{\xvec_i\}_{i=1}^B$ of de-standardised flat-sky $(T,Q,U)$ patches, we estimate the binned cross-spectra $C_\ell^{XY}$ for $XY\in\{TT,EE,BB,TE\}$ by the standard FFT-based estimator of Sec.~\ref{sec:flatsky},
+\begin{equation}
+  \hat C_b^{XY}
+  \;=\;
+  \frac{(\Delta\ell^{\rm pix})^2}{N_b}
+  \sum_{\bm k\in\Omega_b}
+  \frac{1}{B}\sum_{i=1}^B
+  \mathrm{Re}\Bigl(\widetilde X_i^*(\bm k)\,\widetilde Y_i(\bm k)\Bigr),
+\end{equation}
+where $\Omega_b$ is the multipole annulus indexing bin $b$, $N_b=|\Omega_b|$, $(\Delta\ell^{\rm pix})^2$ is the per-mode normalisation, and $\widetilde X_i,\widetilde Y_i$ are the 2D FFTs of the patch maps after rotation of $(Q,U)$ into the local $(E,B)$ basis. We then plot
+\begin{equation}
+  D_\ell \;=\; \frac{\ell(\ell+1)}{2\pi}\,C_\ell
+\end{equation}
+on a linear bin grid up to a comparison multipole $\ell^{\max}_{\rm cmp}=1200$. Both ensembles are passed through identically the same pre-processing chain -- inverse standardisation back to $\mu\mathrm{K}_{\rm CMB}$-based map units, then a mild symmetric Gaussian smoothing of $\sigma_{\rm pix}=1.2$ pixels -- before the spectrum is computed, so that any pre-processing bias cancels exactly between the generated and reference bands.
+
+\subsubsection{Why this is the relevant test for a CMB prior}
+
+For a Gaussian field, the angular power spectrum is a sufficient statistic and an exact match of the second moments is mathematically equivalent to learning the distribution. For the lensed CMB the field is mildly non-Gaussian (the lensing-induced $4$-point function leaves an imprint at the level of $\sim\!1\%$ of the variance at the Planck angular resolution), but on the angular scales resolved by the patch ($\ell\!\lesssim\!1200$) the second-moment test still captures the bulk of the information content. For the Galactic foregrounds the field is more strongly non-Gaussian, but the second-moment comparison remains the standard first-line diagnostic and is the quantity that downstream component-separation analyses are most sensitive to. We therefore treat the $D_\ell^{XY}$ comparison as the principal go/no-go test of the trained prior, and reserve higher-order tests (cross-power spectrum residuals, pixel-domain histograms, and one-point statistics) for follow-up work.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.95\linewidth]{spectral_comparison7.png}
+  \caption{Post-training flat-sky $D_\ell^{XY}$ comparison in $\mu\mathrm{K}_{\rm CMB}$-based map units (after de-standardisation), for $XY\in\{TT,EE,BB,TE\}$. Solid black: validation patches drawn from the saved $p(f)$ prior ($N_{\rm ref}=3277$), which constitute the empirical reference distribution. Dashed coloured: $N_{\rm gen}=64$ patches generated by the trained deterministic flow-matching model, sampled with the Heun second-order ODE integrator at $N_{\rm steps}=1200$, $t\in[0,0.995]$, and a state-clipping bound $|\xvec|\!\leq\!5$. Dotted grey: Monte Carlo theory band built from $8$ independent Gaussian full-sky realisations of the lensed CAMB spectra passed through the identical patch and flat-sky pipeline ($N_{\rm theory}\!=\!512$ patches). The agreement between the validation and theory bands is a calibration check on the patch / flat-sky estimator pipeline itself; the agreement between the generated and validation bands is the direct test of the trained prior.}
+  \label{fig:dl_panel_phys}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.95\linewidth]{spectral_comparison6.png}
+  \caption{Same as Fig.~\ref{fig:dl_panel_phys} but in normalised patch units, i.e.\ before applying the inverse standardisation of Sec.~\ref{sec:data_savedpriors}. This is the domain in which the network is trained and against which the radial-power regulariser of Eq.~(\ref{eq:radial_loss}) is computed.}
+  \label{fig:dl_panel_norm}
+\end{figure}
+
+\subsubsection{Reading the diagnostics}
+The validation and theory bands in Fig.~\ref{fig:dl_panel_phys} agree across the full range $\ell\in[50,1200]$ in all four channels, confirming that the patch-extraction and flat-sky estimator pipelines are themselves unbiased given the assumed lensed CAMB spectra. The generated band tracks both reference curves to within a few percent on the acoustic peak in $D_\ell^{TT}$ and recovers the $D_\ell^{EE}$, $D_\ell^{BB}$, and $D_\ell^{TE}$ peaks at the correct multipole positions; this is the central qualitative success of the prior-learning stage. The residual scatter visible in $D_\ell^{TE}$ is consistent with cosmic variance at $N_{\rm gen}=64$: on a $\sim\!7^\circ$ patch the number of independent modes per bin is $\mathcal{O}(20)$, so the sample-variance error on a single $D_\ell^{TE}$ bin is $\sim\!20\%$. Increasing $N_{\rm gen}$ to a few hundreds visibly suppresses this scatter while leaving the inferred biases on $D_\ell^{TT,EE,BB}$ unchanged. The remaining systematic trend is a mild low-$\ell$ deficit in $D_\ell^{TT}$ at $\ell\!\lesssim\!100$ (Fig.~\ref{fig:dl_panel_phys}, top-left), bounded by $\sim\!10\%$ of the validation $D_\ell^{TT}$ at the lowest bin, and inherited from the steep schedule near $t\to 0$ where the conditional regression target $\zvec-\e$ is overwhelmingly dominated by the noise component $-\e$. The deficit is absent in the normalised-domain diagnostic of Fig.~\ref{fig:dl_panel_norm}, which means it is consistent with a per-channel rescaling of the largest scales rather than a structural bias of the model. We list it as the most actionable target for a follow-up training run, where a non-uniform $t$-sampling distribution at the noise end of the path or a logit-normal time-importance sampling along the lines of \cite{karras2022elucidating} would directly address the issue.
 
 
 
@@ -758,6 +1265,83 @@ M.~Millea, E.~Anderes, and B.~D.~Wandelt,
 \emph{Physical Review D} \textbf{102} (2020), 123542,
 \href{https://doi.org/10.1103/PhysRevD.102.123542}{doi:10.1103/PhysRevD.102.123542},
 \emph{arXiv:2002.00965}.
+
+\bibitem{ronneberger2015unet}
+O.~Ronneberger, P.~Fischer, and T.~Brox,
+``U-Net: Convolutional Networks for Biomedical Image Segmentation,''
+in \emph{Medical Image Computing and Computer-Assisted Intervention -- MICCAI 2015},
+Lecture Notes in Computer Science \textbf{9351} (2015), 234--241,
+\href{https://doi.org/10.1007/978-3-319-24574-4_28}{doi:10.1007/978-3-319-24574-4\_28},
+\emph{arXiv:1505.04597}.
+
+\bibitem{karras2022elucidating}
+T.~Karras, M.~Aittala, T.~Aila, and S.~Laine,
+``Elucidating the Design Space of Diffusion-Based Generative Models,''
+in \emph{Advances in Neural Information Processing Systems} \textbf{35} (2022), 26565--26577,
+\emph{arXiv:2206.00364}.
+
+\bibitem{salimans2022progressive}
+T.~Salimans and J.~Ho,
+``Progressive Distillation for Fast Sampling of Diffusion Models,''
+in \emph{International Conference on Learning Representations} (2022),
+\emph{arXiv:2202.00512}.
+
+\bibitem{perez2018film}
+E.~Perez, F.~Strub, H.~de Vries, V.~Dumoulin, and A.~Courville,
+``FiLM: Visual Reasoning with a General Conditioning Layer,''
+in \emph{Proceedings of the AAAI Conference on Artificial Intelligence} \textbf{32} (2018), 3942--3951,
+\emph{arXiv:1709.07871}.
+
+\bibitem{wu2018groupnorm}
+Y.~Wu and K.~He,
+``Group Normalization,''
+in \emph{Proceedings of the European Conference on Computer Vision (ECCV)} (2018), 3--19,
+\emph{arXiv:1803.08494}.
+
+\bibitem{loshchilov2017sgdr}
+I.~Loshchilov and F.~Hutter,
+``SGDR: Stochastic Gradient Descent with Warm Restarts,''
+in \emph{International Conference on Learning Representations} (2017),
+\emph{arXiv:1608.03983}.
+
+\bibitem{loshchilov2019adamw}
+I.~Loshchilov and F.~Hutter,
+``Decoupled Weight Decay Regularization,''
+in \emph{International Conference on Learning Representations} (2019),
+\emph{arXiv:1711.05101}.
+
+\bibitem{liu2022rectified}
+X.~Liu, C.~Gong, and Q.~Liu,
+``Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow,''
+\emph{arXiv:2209.03003} (2022).
+
+\bibitem{albergo2023interpolants}
+M.~S.~Albergo, N.~M.~Boffi, and E.~Vanden-Eijnden,
+``Stochastic Interpolants: A Unifying Framework for Flows and Diffusions,''
+\emph{arXiv:2303.08797} (2023).
+
+\bibitem{vincent2011dsm}
+P.~Vincent,
+``A Connection Between Score Matching and Denoising Autoencoders,''
+\emph{Neural Computation} \textbf{23}, 1661 (2011).
+
+\bibitem{song2020scorematching}
+Y.~Song and S.~Ermon,
+``Generative Modeling by Estimating Gradients of the Data Distribution,''
+in \emph{Advances in Neural Information Processing Systems} \textbf{32} (2019),
+\emph{arXiv:1907.05600}.
+
+\bibitem{chung2023dps}
+H.~Chung, J.~Kim, M.~T.~McCann, M.~L.~Klasky, and J.~C.~Ye,
+``Diffusion Posterior Sampling for General Noisy Inverse Problems,''
+in \emph{International Conference on Learning Representations} (2023),
+\emph{arXiv:2209.14687}.
+
+\bibitem{saharia2022sr3}
+C.~Saharia \emph{et al.},
+``Image Super-Resolution via Iterative Refinement,''
+\emph{IEEE Transactions on Pattern Analysis and Machine Intelligence} \textbf{45}, 4713 (2023),
+\emph{arXiv:2104.07636}.
 
 \end{thebibliography}
 

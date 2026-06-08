@@ -1,29 +1,69 @@
 \contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
 \contentsline {section}{\numberline {2}Idealized CMB Power Spectra}{3}{section.2}%
-\contentsline {paragraph}{Cosmic variance.}{4}{section*.2}%
-\contentsline {section}{\numberline {3}Realistic CMB Power Spectra}{5}{section.3}%
-\contentsline {subsection}{\numberline {3.1}HEALPix pixelisation}{5}{subsection.3.1}%
-\contentsline {subsection}{\numberline {3.2}Band-limit and downgrading}{5}{subsection.3.2}%
-\contentsline {paragraph}{Harmonic-space downgrading.}{5}{section*.3}%
-\contentsline {subsection}{\numberline {3.3}Beam}{6}{subsection.3.3}%
+\contentsline {paragraph}{Cosmic variance.}{5}{section*.2}%
+\contentsline {section}{\numberline {3}Realistic CMB Power Spectra}{6}{section.3}%
+\contentsline {subsection}{\numberline {3.1}HEALPix pixelisation}{6}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Band-limit and downgrading}{6}{subsection.3.2}%
+\contentsline {paragraph}{Harmonic-space downgrading.}{6}{section*.3}%
+\contentsline {subsection}{\numberline {3.3}Beam}{7}{subsection.3.3}%
 \contentsline {subsection}{\numberline {3.4}Pixel window}{7}{subsection.3.4}%
-\contentsline {subsection}{\numberline {3.5}Masking}{7}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.5}Masking}{8}{subsection.3.5}%
 \contentsline {subsection}{\numberline {3.6}Flat-sky projection and patch spectra}{8}{subsection.3.6}%
 \contentsline {subsection}{\numberline {3.7}Patch-level standardisation}{9}{subsection.3.7}%
-\contentsline {subsection}{\numberline {3.8}Sum--difference noise estimates from independent splits}{9}{subsection.3.8}%
-\contentsline {section}{\numberline {4}Data}{9}{section.4}%
-\contentsline {paragraph}{Common processing parameters.}{9}{section*.4}%
-\contentsline {subsection}{\numberline {4.1}Observed CMB data}{10}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}$p(f)$: simulated CMB priors}{11}{subsection.4.2}%
+\contentsline {subsection}{\numberline {3.8}Sum--difference noise estimates from independent splits}{10}{subsection.3.8}%
+\contentsline {section}{\numberline {4}Data}{10}{section.4}%
+\contentsline {paragraph}{Common processing parameters.}{10}{section*.4}%
+\contentsline {subsection}{\numberline {4.1}Observed CMB data}{11}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}$p(f)$: simulated CMB priors}{12}{subsection.4.2}%
 \contentsline {paragraph}{Cosmology and CAMB call.}{12}{section*.5}%
-\contentsline {paragraph}{Lensed-map sampler.}{12}{section*.6}%
-\contentsline {paragraph}{Post-lensing instrumental response.}{13}{section*.7}%
-\contentsline {paragraph}{Why not just Gaussian draws from the lensed $C_\ell $?}{13}{section*.8}%
+\contentsline {paragraph}{Lensed-map sampler.}{13}{section*.6}%
+\contentsline {paragraph}{Post-lensing instrumental response.}{14}{section*.7}%
+\contentsline {paragraph}{Why not just Gaussian draws from the lensed $C_\ell $?}{14}{section*.8}%
 \contentsline {paragraph}{Approximations and forward look: explicit lensing operator (Option 2).}{14}{section*.9}%
 \contentsline {paragraph}{Output.}{15}{section*.10}%
-\contentsline {subsection}{\numberline {4.3}$p(x)$: simulated foreground priors}{15}{subsection.4.3}%
-\contentsline {subsection}{\numberline {4.4}Conversion to flat patches and saved prior datasets}{16}{subsection.4.4}%
-\contentsline {paragraph}{Per-realisation pipeline.}{16}{section*.11}%
-\contentsline {paragraph}{Split and per-channel standardisation.}{16}{section*.12}%
-\contentsline {paragraph}{On-disk format.}{16}{section*.13}%
-\contentsline {section}{\numberline {5}Diffusion model and flow matching}{17}{section.5}%
+\contentsline {subsection}{\numberline {4.3}$p(x)$: simulated foreground priors}{16}{subsection.4.3}%
+\contentsline {paragraph}{Independent stochastic realisations.}{16}{section*.11}%
+\contentsline {paragraph}{Random orientation augmentation.}{16}{section*.12}%
+\contentsline {paragraph}{Common transfer-function application.}{16}{section*.13}%
+\contentsline {paragraph}{Limitations.}{17}{section*.14}%
+\contentsline {subsection}{\numberline {4.4}Conversion to flat patches and saved prior datasets}{17}{subsection.4.4}%
+\contentsline {paragraph}{Per-realisation pipeline.}{17}{section*.15}%
+\contentsline {paragraph}{Train/validation split by map index.}{18}{section*.16}%
+\contentsline {paragraph}{Per-channel standardisation.}{18}{section*.17}%
+\contentsline {paragraph}{On-disk format.}{18}{section*.18}%
+\contentsline {section}{\numberline {5}Deterministic flow matching for patch-based CMB priors}{19}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Mathematical formalism: probability paths and flow matching}{19}{subsection.5.1}%
+\contentsline {subsubsection}{\numberline {5.1.1}Probability paths and flow models}{19}{subsubsection.5.1.1}%
+\contentsline {subsubsection}{\numberline {5.1.2}Conditional probability path and the marginalisation theorem}{20}{subsubsection.5.1.2}%
+\contentsline {subsubsection}{\numberline {5.1.3}The conditional flow-matching loss}{20}{subsubsection.5.1.3}%
+\contentsline {subsubsection}{\numberline {5.1.4}Score--velocity correspondence and the deterministic limit}{21}{subsubsection.5.1.4}%
+\contentsline {subsubsection}{\numberline {5.1.5}Why deterministic flow matching for this work}{21}{subsubsection.5.1.5}%
+\contentsline {subsection}{\numberline {5.2}Probability path: Gaussian interpolant with linear schedule}{22}{subsection.5.2}%
+\contentsline {subsubsection}{\numberline {5.2.1}Conditional velocity field and noise reparametrisation}{22}{subsubsection.5.2.1}%
+\contentsline {subsubsection}{\numberline {5.2.2}Linear schedule}{23}{subsubsection.5.2.2}%
+\contentsline {subsubsection}{\numberline {5.2.3}Implications for training and sampling}{23}{subsubsection.5.2.3}%
+\contentsline {subsection}{\numberline {5.3}Network architecture}{24}{subsection.5.3}%
+\contentsline {subsubsection}{\numberline {5.3.1}Why a U-Net for CMB patches}{24}{subsubsection.5.3.1}%
+\contentsline {subsubsection}{\numberline {5.3.2}Macro-structure}{24}{subsubsection.5.3.2}%
+\contentsline {subsubsection}{\numberline {5.3.3}Time conditioning}{25}{subsubsection.5.3.3}%
+\contentsline {subsubsection}{\numberline {5.3.4}Parameter count}{25}{subsubsection.5.3.4}%
+\contentsline {subsection}{\numberline {5.4}Training: loss function, optimisation, and the role of each term}{25}{subsection.5.4}%
+\contentsline {subsubsection}{\numberline {5.4.1}Loss function}{25}{subsubsection.5.4.1}%
+\contentsline {paragraph}{(i) Conditional flow-matching loss.}{25}{section*.19}%
+\contentsline {paragraph}{(ii) Posterior-mean (``$x_0$'') anchor.}{26}{section*.20}%
+\contentsline {paragraph}{(iii) Radial Fourier-power regulariser.}{26}{section*.21}%
+\contentsline {subsubsection}{\numberline {5.4.2}Symmetry-aware data augmentation}{27}{subsubsection.5.4.2}%
+\contentsline {subsubsection}{\numberline {5.4.3}Time-sampling distribution}{27}{subsubsection.5.4.3}%
+\contentsline {subsubsection}{\numberline {5.4.4}Optimisation, gradient hygiene, and weight averaging}{27}{subsubsection.5.4.4}%
+\contentsline {subsubsection}{\numberline {5.4.5}Best-spectral checkpointing}{27}{subsubsection.5.4.5}%
+\contentsline {subsubsection}{\numberline {5.4.6}Hyperparameter summary}{27}{subsubsection.5.4.6}%
+\contentsline {subsection}{\numberline {5.5}Sampling: deterministic ODE integration}{28}{subsection.5.5}%
+\contentsline {subsubsection}{\numberline {5.5.1}Numerical integrator: Heun's second-order method}{28}{subsubsection.5.5.1}%
+\contentsline {subsubsection}{\numberline {5.5.2}Terminal-state reconstruction}{29}{subsubsection.5.5.2}%
+\contentsline {subsubsection}{\numberline {5.5.3}Stability safeguards}{29}{subsubsection.5.5.3}%
+\contentsline {subsubsection}{\numberline {5.5.4}Production sampling configuration}{29}{subsubsection.5.5.4}%
+\contentsline {subsection}{\numberline {5.6}Diagnostics: validating the learned prior}{29}{subsection.5.6}%
+\contentsline {subsubsection}{\numberline {5.6.1}Reference ensembles}{29}{subsubsection.5.6.1}%
+\contentsline {subsubsection}{\numberline {5.6.2}Flat-sky $D_\ell $ comparison: definition}{30}{subsubsection.5.6.2}%
+\contentsline {subsubsection}{\numberline {5.6.3}Why this is the relevant test for a CMB prior}{30}{subsubsection.5.6.3}%
+\contentsline {subsubsection}{\numberline {5.6.4}Reading the diagnostics}{30}{subsubsection.5.6.4}%
