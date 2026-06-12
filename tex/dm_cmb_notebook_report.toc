@@ -1,30 +1,30 @@
-\contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
-\contentsline {section}{\numberline {2}Idealized CMB Power Spectra}{3}{section.2}%
-\contentsline {paragraph}{Cosmic variance.}{5}{section*.2}%
+\contentsline {section}{\numberline {1}Introduction}{3}{section.1}%
+\contentsline {section}{\numberline {2}Idealized CMB Power Spectra}{4}{section.2}%
+\contentsline {paragraph}{Cosmic variance.}{6}{section*.2}%
 \contentsline {section}{\numberline {3}Realistic CMB Power Spectra}{6}{section.3}%
 \contentsline {subsection}{\numberline {3.1}HEALPix pixelisation}{6}{subsection.3.1}%
 \contentsline {subsection}{\numberline {3.2}Band-limit and downgrading}{6}{subsection.3.2}%
-\contentsline {paragraph}{Harmonic-space downgrading.}{6}{section*.3}%
+\contentsline {paragraph}{Harmonic-space downgrading.}{7}{section*.3}%
 \contentsline {subsection}{\numberline {3.3}Beam}{7}{subsection.3.3}%
-\contentsline {subsection}{\numberline {3.4}Pixel window}{7}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.4}Pixel window}{8}{subsection.3.4}%
 \contentsline {subsection}{\numberline {3.5}Masking}{8}{subsection.3.5}%
-\contentsline {subsection}{\numberline {3.6}Flat-sky projection and patch spectra}{8}{subsection.3.6}%
-\contentsline {subsection}{\numberline {3.7}Patch-level standardisation}{9}{subsection.3.7}%
+\contentsline {subsection}{\numberline {3.6}Flat-sky projection and patch spectra}{9}{subsection.3.6}%
+\contentsline {subsection}{\numberline {3.7}Patch-level standardisation}{10}{subsection.3.7}%
 \contentsline {subsection}{\numberline {3.8}Sum--difference noise estimates from independent splits}{10}{subsection.3.8}%
 \contentsline {section}{\numberline {4}Data}{10}{section.4}%
 \contentsline {paragraph}{Common processing parameters.}{10}{section*.4}%
-\contentsline {subsection}{\numberline {4.1}Observed CMB data}{11}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}$p(f)$: simulated CMB priors}{12}{subsection.4.2}%
-\contentsline {paragraph}{Cosmology and CAMB call.}{12}{section*.5}%
+\contentsline {subsection}{\numberline {4.1}Observed CMB data}{12}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}$p(f)$: simulated CMB priors}{13}{subsection.4.2}%
+\contentsline {paragraph}{Cosmology and CAMB call.}{13}{section*.5}%
 \contentsline {paragraph}{Lensed-map sampler.}{13}{section*.6}%
 \contentsline {paragraph}{Post-lensing instrumental response.}{14}{section*.7}%
 \contentsline {paragraph}{Why not just Gaussian draws from the lensed $C_\ell $?}{14}{section*.8}%
-\contentsline {paragraph}{Approximations and forward look: explicit lensing operator (Option 2).}{14}{section*.9}%
-\contentsline {paragraph}{Output.}{15}{section*.10}%
+\contentsline {paragraph}{Approximations and forward look: explicit lensing operator (Option 2).}{15}{section*.9}%
+\contentsline {paragraph}{Output.}{16}{section*.10}%
 \contentsline {subsection}{\numberline {4.3}$p(x)$: simulated foreground priors}{16}{subsection.4.3}%
 \contentsline {paragraph}{Independent stochastic realisations.}{16}{section*.11}%
 \contentsline {paragraph}{Random orientation augmentation.}{16}{section*.12}%
-\contentsline {paragraph}{Common transfer-function application.}{16}{section*.13}%
+\contentsline {paragraph}{Common transfer-function application.}{17}{section*.13}%
 \contentsline {paragraph}{Limitations.}{17}{section*.14}%
 \contentsline {subsection}{\numberline {4.4}Conversion to flat patches and saved prior datasets}{17}{subsection.4.4}%
 \contentsline {paragraph}{Per-realisation pipeline.}{17}{section*.15}%
@@ -41,7 +41,7 @@
 \contentsline {subsection}{\numberline {5.2}Probability path: Gaussian interpolant with linear schedule}{22}{subsection.5.2}%
 \contentsline {subsubsection}{\numberline {5.2.1}Conditional velocity field and noise reparametrisation}{22}{subsubsection.5.2.1}%
 \contentsline {subsubsection}{\numberline {5.2.2}Linear schedule}{23}{subsubsection.5.2.2}%
-\contentsline {subsubsection}{\numberline {5.2.3}Implications for training and sampling}{23}{subsubsection.5.2.3}%
+\contentsline {subsubsection}{\numberline {5.2.3}Implications for training and sampling}{24}{subsubsection.5.2.3}%
 \contentsline {subsection}{\numberline {5.3}Network architecture}{24}{subsection.5.3}%
 \contentsline {subsubsection}{\numberline {5.3.1}Why a U-Net for CMB patches}{24}{subsubsection.5.3.1}%
 \contentsline {subsubsection}{\numberline {5.3.2}Macro-structure}{24}{subsubsection.5.3.2}%
@@ -49,21 +49,64 @@
 \contentsline {subsubsection}{\numberline {5.3.4}Parameter count}{25}{subsubsection.5.3.4}%
 \contentsline {subsection}{\numberline {5.4}Training: loss function, optimisation, and the role of each term}{25}{subsection.5.4}%
 \contentsline {subsubsection}{\numberline {5.4.1}Loss function}{25}{subsubsection.5.4.1}%
-\contentsline {paragraph}{(i) Conditional flow-matching loss.}{25}{section*.19}%
+\contentsline {paragraph}{(i) Conditional flow-matching loss.}{26}{section*.19}%
 \contentsline {paragraph}{(ii) Posterior-mean (``$x_0$'') anchor.}{26}{section*.20}%
 \contentsline {paragraph}{(iii) Radial Fourier-power regulariser.}{26}{section*.21}%
 \contentsline {subsubsection}{\numberline {5.4.2}Symmetry-aware data augmentation}{27}{subsubsection.5.4.2}%
 \contentsline {subsubsection}{\numberline {5.4.3}Time-sampling distribution}{27}{subsubsection.5.4.3}%
-\contentsline {subsubsection}{\numberline {5.4.4}Optimisation, gradient hygiene, and weight averaging}{27}{subsubsection.5.4.4}%
-\contentsline {subsubsection}{\numberline {5.4.5}Best-spectral checkpointing}{27}{subsubsection.5.4.5}%
-\contentsline {subsubsection}{\numberline {5.4.6}Hyperparameter summary}{27}{subsubsection.5.4.6}%
-\contentsline {subsection}{\numberline {5.5}Sampling: deterministic ODE integration}{28}{subsection.5.5}%
-\contentsline {subsubsection}{\numberline {5.5.1}Numerical integrator: Heun's second-order method}{28}{subsubsection.5.5.1}%
-\contentsline {subsubsection}{\numberline {5.5.2}Terminal-state reconstruction}{29}{subsubsection.5.5.2}%
-\contentsline {subsubsection}{\numberline {5.5.3}Stability safeguards}{29}{subsubsection.5.5.3}%
-\contentsline {subsubsection}{\numberline {5.5.4}Production sampling configuration}{29}{subsubsection.5.5.4}%
-\contentsline {subsection}{\numberline {5.6}Diagnostics: validating the learned prior}{29}{subsection.5.6}%
-\contentsline {subsubsection}{\numberline {5.6.1}Reference ensembles}{29}{subsubsection.5.6.1}%
-\contentsline {subsubsection}{\numberline {5.6.2}Flat-sky $D_\ell $ comparison: definition}{30}{subsubsection.5.6.2}%
-\contentsline {subsubsection}{\numberline {5.6.3}Why this is the relevant test for a CMB prior}{30}{subsubsection.5.6.3}%
-\contentsline {subsubsection}{\numberline {5.6.4}Reading the diagnostics}{30}{subsubsection.5.6.4}%
+\contentsline {subsubsection}{\numberline {5.4.4}Optimiser}{27}{subsubsection.5.4.4}%
+\contentsline {subsubsection}{\numberline {5.4.5}Hyperparameter summary}{27}{subsubsection.5.4.5}%
+\contentsline {subsection}{\numberline {5.5}EMA averaging and validation-driven checkpointing}{28}{subsection.5.5}%
+\contentsline {subsubsection}{\numberline {5.5.1}Exponential moving average of the weights}{28}{subsubsection.5.5.1}%
+\contentsline {paragraph}{Update rule.}{28}{section*.22}%
+\contentsline {paragraph}{Implementation.}{29}{section*.23}%
+\contentsline {paragraph}{Hot-swap evaluation.}{29}{section*.24}%
+\contentsline {subsubsection}{\numberline {5.5.2}The spectral selection score}{29}{subsubsection.5.5.2}%
+\contentsline {paragraph}{Two log-space discrepancies.}{29}{section*.25}%
+\contentsline {paragraph}{The combined score.}{30}{section*.26}%
+\contentsline {paragraph}{Sampling configuration.}{30}{section*.27}%
+\contentsline {subsubsection}{\numberline {5.5.3}Best-validation-spectral checkpointing}{30}{subsubsection.5.5.3}%
+\contentsline {paragraph}{Selection rule.}{30}{section*.28}%
+\contentsline {paragraph}{What the saved checkpoint contains.}{31}{section*.29}%
+\contentsline {paragraph}{Why the best-along-the-way and not early stopping.}{31}{section*.30}%
+\contentsline {paragraph}{Why $\mathcal S$ rather than the validation $\mathcal L_{\rm CFM}$.}{31}{section*.31}%
+\contentsline {subsubsection}{\numberline {5.5.4}End-to-end protocol summary}{31}{subsubsection.5.5.4}%
+\contentsline {subsection}{\numberline {5.6}Sampling: deterministic ODE integration}{32}{subsection.5.6}%
+\contentsline {subsubsection}{\numberline {5.6.1}Numerical integrator: Heun's second-order method}{32}{subsubsection.5.6.1}%
+\contentsline {subsubsection}{\numberline {5.6.2}Terminal-state reconstruction}{32}{subsubsection.5.6.2}%
+\contentsline {subsubsection}{\numberline {5.6.3}Stability safeguards}{32}{subsubsection.5.6.3}%
+\contentsline {subsubsection}{\numberline {5.6.4}Production sampling configuration}{32}{subsubsection.5.6.4}%
+\contentsline {subsection}{\numberline {5.7}Diagnostics: validating the learned prior}{33}{subsection.5.7}%
+\contentsline {subsubsection}{\numberline {5.7.1}Reference ensembles}{33}{subsubsection.5.7.1}%
+\contentsline {subsubsection}{\numberline {5.7.2}Flat-sky $TT$ bandpower estimator}{33}{subsubsection.5.7.2}%
+\contentsline {subsubsection}{\numberline {5.7.3}Bandpower binning conventions used in the notebook}{34}{subsubsection.5.7.3}%
+\contentsline {paragraph}{Linear bandpowers (\texttt {flat\_sky\_tt\_spectrum}).}{34}{section*.32}%
+\contentsline {paragraph}{Logarithmic bandpowers (\texttt {flat\_sky\_tt\_spectrum\_binned}).}{34}{section*.33}%
+\contentsline {paragraph}{Legacy single-input estimator (\texttt {flat\_sky\_tt\_power\_spectrum}).}{35}{section*.34}%
+\contentsline {subsubsection}{\numberline {5.7.4}Pixel-space Gaussian smoothing (\texttt {gaussian\_smooth\_patches\_t})}{35}{subsubsection.5.7.4}%
+\contentsline {subsubsection}{\numberline {5.7.5}Integrated and band-limited variance diagnostics}{35}{subsubsection.5.7.5}%
+\contentsline {subsubsection}{\numberline {5.7.6}Variance-matched comparison}{36}{subsubsection.5.7.6}%
+\contentsline {subsubsection}{\numberline {5.7.7}Cosmic variance per bin}{36}{subsubsection.5.7.7}%
+\contentsline {subsubsection}{\numberline {5.7.8}Why this is the relevant test for a CMB prior}{37}{subsubsection.5.7.8}%
+\contentsline {subsubsection}{\numberline {5.7.9}Reading the diagnostics: amplitude vs.\ shape biases}{37}{subsubsection.5.7.9}%
+\contentsline {section}{\numberline {6}From the trained vector field to the $D_\ell ^{TT}$ plot}{37}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Step 1 -- Initial noise in normalised patch units}{38}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Step 2 -- Heun integration of the flow ODE}{38}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Step 3 -- Endpoint denoising: $\xvec _{t_{\max }}\to \hat \xvec _0$}{39}{subsection.6.3}%
+\contentsline {subsection}{\numberline {6.4}Step 4 -- De-standardisation to physical units}{39}{subsection.6.4}%
+\contentsline {subsection}{\numberline {6.5}Step 5 -- Optional Gaussian pixel smoothing}{40}{subsection.6.5}%
+\contentsline {subsection}{\numberline {6.6}Step 6 -- The estimator \texttt {flat\_sky\_tt\_spectrum}}{40}{subsection.6.6}%
+\contentsline {paragraph}{(6a) Pixel geometry.}{40}{section*.35}%
+\contentsline {paragraph}{(6b) Fourier grid.}{40}{section*.36}%
+\contentsline {paragraph}{(6c) Linear bandpower partition.}{41}{section*.37}%
+\contentsline {paragraph}{(6d) Discrete periodogram with continuum normalisation.}{41}{section*.38}%
+\contentsline {paragraph}{(6e) Radial annular average.}{41}{section*.39}%
+\contentsline {paragraph}{(6f) Batch average.}{42}{section*.40}%
+\contentsline {paragraph}{Return value.}{42}{section*.41}%
+\contentsline {subsection}{\numberline {6.7}Step 7 -- From $\hat P_b$ to $\hat D_b^{TT}$}{42}{subsection.6.7}%
+\contentsline {subsection}{\numberline {6.8}End-to-end summary}{42}{subsection.6.8}%
+\contentsline {paragraph}{Inputs.}{43}{section*.42}%
+\contentsline {paragraph}{Bandpower estimates and band selection.}{43}{section*.43}%
+\contentsline {paragraph}{Bandpower-shape term.}{43}{section*.44}%
+\contentsline {paragraph}{Pixel-variance term.}{43}{section*.45}%
+\contentsline {paragraph}{Combined score.}{44}{section*.46}%

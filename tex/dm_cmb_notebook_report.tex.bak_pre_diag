@@ -9,17 +9,6 @@
 \usepackage{cite}
 \usepackage{graphicx}
 \graphicspath{{../plots/}}
-\usepackage{listings}
-\lstdefinestyle{nb}{
-  basicstyle=\ttfamily\small,
-  breaklines=true,
-  columns=fullflexible,
-  keepspaces=true,
-  showstringspaces=false,
-  keywordstyle=\color{blue!60!black},
-  commentstyle=\color{gray!70!black},
-  stringstyle=\color{purple!60!black}
-}
 
 \hypersetup{
   colorlinks=true,
@@ -34,10 +23,10 @@
 \newcommand{\T}{\mathrm{T}}
 \newcommand{\e}{\varepsilon}
 \newcommand{\dd}{\mathrm{d}}
-\DeclareRobustCommand{\uvec}{\bm{u}}
-\DeclareRobustCommand{\xvec}{\bm{x}}
-\DeclareRobustCommand{\zvec}{\bm{z}}
-\DeclareRobustCommand{\thetavec}{\bm{\theta}}
+\newcommand{\uvec}{\bm{u}}
+\newcommand{\xvec}{\bm{x}}
+\newcommand{\zvec}{\bm{z}}
+\newcommand{\thetavec}{\bm{\theta}}
 \newcommand{\grad}{\nabla}
 \newcommand{\pinit}{p_{\rm init}}
 \newcommand{\pdata}{p_{\rm data}}
@@ -961,7 +950,7 @@ i.e.\ for any predicted velocity $\uvec_t^{\thetavec}$ there is a deterministic 
   \mathcal L_{x_0}(\thetavec) \;=\; \EE_{t,\zvec,\e}\!\bigl[\,\|\hat\zvec_{\thetavec}(\xvec_t,t) - \zvec\|^2_2\,\bigr].
   \label{eq:x0_loss}
 \end{equation}
-Two remarks. First, $\mathcal L_{x_0}$ is mathematically redundant with $\mathcal L_{\rm CFM}$ at the global optimum -- both attain their minima exactly when $\uvec_t^{\thetavec}=u_t$ -- but they have different finite-sample variance profiles. Near $t\to 1$ the linear map of Eq.~(\ref{eq:x0_recon}) becomes nearly singular (the denominator scales as $1-t$ for the linear schedule), so $\mathcal L_{x_0}$ is dominated by mistakes made by the network at the data end of the path, where $\mathcal L_{\rm CFM}$ alone is comparatively insensitive. Second, since $\hat\zvec_{\thetavec}$ is a linear function of $\uvec_t^{\thetavec}$ with $t$-dependent coefficients, $\mathcal L_{x_0}$ is, at fixed schedule, exactly equivalent to $\mathcal L_{\rm CFM}$ with a $t$-dependent reweighting that increases towards $t=1$. The current production run ablates this term ($\lambda_{x_0}=0$): together with the EMA + best-validation-spectral checkpointing protocol of Sec.~\ref{sec:fm_ema_and_best}, the CFM term alone owns the spectral target with no optimisation-drift artefact, and adding the anchor at non-zero weight was found to reach a worse final spectrum at fixed compute.
+Two remarks. First, $\mathcal L_{x_0}$ is mathematically redundant with $\mathcal L_{\rm CFM}$ at the global optimum -- both attain their minima exactly when $\uvec_t^{\thetavec}=u_t$ -- but they have different finite-sample variance profiles. Near $t\to 1$ the linear map of Eq.~(\ref{eq:x0_recon}) becomes nearly singular (the denominator scales as $1-t$ for the linear schedule), so $\mathcal L_{x_0}$ is dominated by mistakes made by the network at the data end of the path, where $\mathcal L_{\rm CFM}$ alone is comparatively insensitive. Second, since $\hat\zvec_{\thetavec}$ is a linear function of $\uvec_t^{\thetavec}$ with $t$-dependent coefficients, $\mathcal L_{x_0}$ is, at fixed schedule, exactly equivalent to $\mathcal L_{\rm CFM}$ with a $t$-dependent reweighting that increases towards $t=1$. We use $\lambda_{x_0}=0.10$, which we found to be the smallest value that visibly tightens the validation-time $x_0$-reconstruction loss without distorting the $\mathcal L_{\rm CFM}$ profile.
 
 \paragraph{(iii) Radial Fourier-power regulariser.}
 The third term is the central physics-aware regulariser of this work. Let $\mathcal F$ denote the unitary 2D discrete Fourier transform on the $64\!\times\!64$ patch grid; given a batch of $B$ network reconstructions $\{\hat\zvec_{\thetavec,i}\}$ of clean patches, define the per-mode batch-averaged power
@@ -984,7 +973,7 @@ where $\mathcal K$ runs over all FFT bins and all three Stokes channels. Three p
   \item \emph{Logarithmic dynamic range matching.} Patch power spectra span approximately four decades between the largest patch mode and the patch Nyquist multipole. A linear MSE on $P(\bm k)$ would be entirely dominated by the few low-$\ell$ bins; the log-power form treats all scales symmetrically.
   \item \emph{Alignment with the validation diagnostic.} The flat-sky $D_\ell$ comparison of Sec.~\ref{sec:fm_diagnostics} is a coarsely binned, radially averaged version of the same quantity. The training objective is therefore a finer-grained, per-bin surrogate for the validation metric, which avoids the standard adversary in score-based modelling where a low validation loss can coexist with a visibly biased generated power spectrum.
 \end{enumerate}
-The current production run ablates this term as well ($\lambda_{\rm rad}=0$). The two $1/(K+1)$-weighted log-power gradients (which we used in earlier runs) were found to overpin low-$K$ amplitude well before the CFM optimum was reached, walking the model into a basin in which $\hat D_\ell^{TT}$ overshoots the validation curve at low $\ell$ while the peak amplitude regresses towards lower values. With $\lambda_{x_0}=\lambda_{\rm rad}=0$ the validation spectral score (Sec.~\ref{sec:fm_ema_and_best}) decreases monotonically over the run and the best-spectral EMA checkpoint is taken as the final answer.
+We use $\lambda_{\rm rad}=0.10$.
 
 \subsubsection{Symmetry-aware data augmentation}
 
@@ -994,9 +983,15 @@ The flat-sky polarisation field is $\mathrm{D}_4$-equivariant up to the spin-2 s
 
 We draw the diffusion time $t$ uniformly on $[0,t_{\max}]$ with $t_{\max}=0.995$. The upper truncation avoids the $1/(1-t)$ singularity in the conditional score and preserves a one-step margin from the boundary that matches the integration grid used at sampling time (Sec.~\ref{sec:fm_sample_pipeline}); training and sampling distributions therefore see exactly the same support of $t$. For the linear schedule, the conditional target Eq.~(\ref{eq:linear_target}) is $t$-independent and the marginal patch variance varies by less than a factor of two across the path, so uniform sampling is unbiased with respect to all multipoles in expectation -- there is no schedule-induced reason to depart from $\mathcal U[0,t_{\max}]$.
 
-\subsubsection{Optimiser}
+\subsubsection{Optimisation, gradient hygiene, and weight averaging}
 
-We optimise $\mathcal L(\thetavec)$ with AdamW~\cite{loshchilov2019adamw} at base learning rate $10^{-4}$ and weight decay $10^{-4}$, with the gradient norm clipped to unity before each update to suppress the rare large-step events that arise from outlier $\xvec_t$ samples near $t=t_{\max}$. The learning rate is held constant for the first $5{,}000$ epochs and then cosine-annealed~\cite{loshchilov2017sgdr} to $0.1\times$ the base value over the remaining $15{,}000$ epochs of the production run. The mini-batch size is $B=250$ and the production budget is $20{,}000$ epochs (Sec.~\ref{sec:fm_ema_and_best} explains why this large budget is paired with validation-spectral checkpointing rather than with early stopping).
+We optimise $\mathcal L(\thetavec)$ with AdamW \cite{loshchilov2019adamw} at base learning rate $10^{-4}$ and weight decay $10^{-4}$, with the gradient norm clipped to unity before each update to suppress the rare large-step events that arise from outlier $\xvec_t$ samples near $t=t_{\max}$. The learning rate is held constant for the duration of the production run and switches to a cosine-annealing schedule \cite{loshchilov2017sgdr} only in extended-duration follow-up experiments.
+
+We maintain an exponential moving average of the parameters, $\bar\thetavec_{n+1} = \rho\,\bar\thetavec_n + (1-\rho)\,\thetavec_{n+1}$ with $\rho=0.99$, and perform every evaluation pass (validation loss, training-time spectral diagnostic, post-training sampling) on the EMA copy. The first $300$ EMA updates are discarded for evaluation, since the running average is biased towards the random initialisation while the live parameters are still moving by $\mathcal O(1)$ per step. After the warmup, EMA weights are systematically smoother than live weights at the same training token count and substantially reduce the variance of the spectral diagnostic, in line with the empirical findings of \cite{karras2022elucidating,salimans2022progressive}.
+
+\subsubsection{Best-spectral checkpointing}
+
+The training-time monitoring loop periodically integrates the flow ODE on a small batch of validation initial conditions $\xvec_0\sim\pinit$, computes the binned flat-sky $D_\ell^{TT,EE,BB,TE}$ of the generated patches, and produces a scalar spectral score (the inverse mean log-power deviation between the generated and the validation spectra). The weights -- both live and EMA -- that achieve the best spectral score over the run are stored as a separate checkpoint and used at evaluation time. This is a principled deviation from training-loss-only checkpointing: in the small-patch regime the validation $\mathcal L_{\rm CFM}$ saturates well before the spectral diagnostic does, and the best-spectral weights consistently match the validation distribution more faithfully than the final-epoch weights at fixed compute.
 
 \subsubsection{Hyperparameter summary}
 
@@ -1012,171 +1007,23 @@ Table~\ref{tab:fm_hparams} reports the production hyperparameters used for the r
     $t$-sampling distribution & Uniform on $[0,\,t_{\max}]$, $t_{\max}=0.995$ \\
     Sampling regime & deterministic flow, $\sigma=0$ \\
     CFM loss weight & $1.0$ \\
-    $x_0$-anchor weight $\lambda_{x_0}$ & $0.0$ (production); $0.10$ historical \\
-    Radial Fourier-power weight $\lambda_{\rm rad}$ & $0.0$ (production); $0.10$ historical \\
-    Augmentation & $\mathrm{D}_4$ on $T$ patches \\
+    $x_0$-anchor weight $\lambda_{x_0}$ & $0.10$ \\
+    Radial Fourier-power weight $\lambda_{\rm rad}$ & $0.10$ \\
+    Augmentation & $\mathrm{D}_4$ on $(T,Q,U)$ with spin-2 sign rule \\
     Optimiser & AdamW, weight decay $10^{-4}$ \\
     Base learning rate & $10^{-4}$ \\
     Gradient clip & unit Frobenius norm \\
     Mini-batch size & $250$ \\
-    Number of epochs & $20{,}000$ \\
-    LR schedule & constant for the first $5{,}000$ epochs, cosine-annealing to $0.1\times$ base afterwards \\
+    Number of epochs & $200$ \\
+    LR schedule & constant in production; cosine-annealing reserved for $>1000$ epochs \\
     EMA decay & $\rho=0.99$ \\
     EMA evaluation warmup & $300$ steps \\
-    Validation-spectral checkpointing & best-spectral EMA snapshot kept as final answer (Sec.~\ref{sec:fm_ema_and_best}) \\
     State clipping at sampling & $|\xvec|\!\leq\!5$ \\
     \bottomrule
   \end{tabular}
   \caption{Production hyperparameters for the deterministic flow-matching prior of this work, trained on the standardised patch dataset $p(f)$. The same configuration is used for the foreground prior $p(x)$ except for the choice of training dataset.}
   \label{tab:fm_hparams}
 \end{table}
-
-\subsection{EMA averaging and validation-driven checkpointing}
-\label{sec:fm_ema_and_best}
-
-The bare optimiser trajectory $\{\thetavec_n\}_{n\geq 0}$ produced by AdamW is, at its best, a stochastic walk around the local minimum of the training objective. Two practical issues follow: (i) the per-step weights have a non-negligible amount of optimisation noise that hurts evaluation; (ii) the training loss is only a noisy proxy for the quantity we ultimately care about, namely the agreement of the generated patches with the validation $D_\ell^{TT}$. We address both with a single mechanism: an exponential moving average (EMA) of the weights that is hot-swapped at validation time, plus a validation-time selection rule that keeps the best EMA snapshot across the entire run rather than the last one.
-
-\subsubsection{Exponential moving average of the weights}
-\label{sec:fm_ema}
-
-\paragraph{Update rule.}
-At each optimiser step $n$ we maintain a shadow copy $\bar\thetavec_n\in\mathbb R^p$ of the model parameters, updated by
-\begin{equation}
-  \bar\thetavec_{n+1} \;=\; \rho\,\bar\thetavec_n + (1-\rho)\,\thetavec_{n+1},\qquad \rho\in(0,1),
-  \label{eq:ema_update}
-\end{equation}
-with $\rho=0.99$ in our runs (\texttt{ema\_decay=0.99} passed to \texttt{FlowMatchingTrainer}; cell 58). Unrolling \eqref{eq:ema_update} from the initial shadow $\bar\thetavec_0=\thetavec_0$ gives the equivalent geometric-weight representation
-\begin{equation}
-  \bar\thetavec_n \;=\; \rho^{\,n}\,\thetavec_0 + (1-\rho)\sum_{k=1}^{n}\rho^{\,n-k}\,\thetavec_k,
-  \label{eq:ema_unroll}
-\end{equation}
-i.e.\ a low-pass filter on the optimiser trajectory with effective averaging horizon
-\begin{equation}
-  \tau_{\rm EMA}\;=\;\frac{1}{1-\rho},
-\end{equation}
-so for $\rho=0.99$ that is $\tau_{\rm EMA}\approx 100$ steps. Eq.~(\ref{eq:ema_unroll}) is a Polyak-style running average, and for any twice-differentiable loss with bounded Hessian near the optimum this estimator has strictly lower variance than the instantaneous iterate $\thetavec_n$ at the same training token count.
-
-\paragraph{Implementation.}
-The EMA shadow only mirrors floating-point parameters of the model. Integer buffers (e.g.\ batch counters, batch-norm running stats with integer types) are excluded from \eqref{eq:ema_update} so that the multiplication by $\rho$ is well-defined. Concretely, the \texttt{ModelEMA} helper in cell 45 of the notebook stores
-\begin{equation}
-  \mathrm{shadow}[k] \;=\; \rho\,\mathrm{shadow}[k] \;+\; (1-\rho)\,\theta[k] \quad\text{for every floating-point key }k,
-  \label{eq:ema_inplace}
-\end{equation}
-which is the in-place form of \eqref{eq:ema_update}. The \texttt{update} method is called once per optimiser step from inside the trainer's training loop (cell 53). The same helper exposes the methods \texttt{store}, \texttt{copy\_to}, \texttt{restore}: this triplet implements the hot-swap evaluation pattern described next.
-
-\paragraph{Hot-swap evaluation.}
-At each diagnostic step we evaluate the EMA weights, not the live weights, by the canonical store/copy/restore protocol:
-\begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
-  \item \texttt{store}: snapshot the live floating-point parameters $\thetavec_n$ into a backup buffer.
-  \item \texttt{copy\_to}: overwrite the live parameters with the EMA shadow $\bar\thetavec_n$.
-  \item Run the validation-time forward passes (vector-field MSE, spectral sampling, etc.).
-  \item \texttt{restore}: write the backup buffer back into the live parameters so that the next optimiser step continues on the original trajectory.
-\end{enumerate}
-This block is implemented at lines $3260$--$3277$ of the notebook (see the in-loop guard \texttt{idx >= self.ema\_eval\_warmup\_steps}). The $300$-step EMA warmup avoids using a poorly-conditioned shadow early in training, where the running average is still biased towards the random initialisation. After the warmup, the EMA copy is systematically smoother than the live weights at the same compute, and substantially reduces the variance of the spectral diagnostic of the next subsection, in line with the empirical findings of~\cite{karras2022elucidating,salimans2022progressive}.
-
-\subsubsection{The spectral selection score}
-\label{sec:fm_spectral_score}
-
-The training-loss proxy $\mathcal L_{\rm CFM}$ is locally minimised by the optimal marginal velocity $u_t^{\star}$, but locally the noise floor of the regression is set by the irreducible Gaussian-conditional MMSE
-$(\dot\alpha_t\beta_t-\dot\beta_t\alpha_t)^2/(\alpha_t^2+\beta_t^2)$, which carries no preference for any particular $D_\ell^{TT}$ shape. Two distinct snapshots can therefore have indistinguishable $\mathcal L_{\rm CFM}$ but visibly different generated $D_\ell^{TT}$ curves. We therefore score each EMA snapshot by an end-to-end test that mirrors the inference pipeline as closely as possible.
-
-Let $\bar\thetavec$ be the EMA snapshot to be scored. We sample $N_{\rm s}$ patches by integrating the deterministic ODE
-\begin{equation}
-  \xvec_0\sim\mathcal N(0,I_{1\times 64\times 64}),\qquad
-  \frac{\dd\xvec_t}{\dd t}\;=\;\uvec_t^{\bar\thetavec}(\xvec_t),\qquad t\in[t_{\min},t_{\max}],
-  \label{eq:flow_ode_diag}
-\end{equation}
-with the same Heun substep grid used at inference (Sec.~\ref{sec:fm_sample_pipeline}), reconstruct $\hat\zvec=\hat\xvec_0$ from the endpoint $\xvec_{t_{\max}}$ via the linear posterior-mean projector of Eq.~(\ref{eq:x0_recon}), and apply the same Gaussian pixel-space smoothing kernel $\sigma_{\rm pix}$ that is applied to the validation patches. Denote the resulting smoothed patch ensemble by $\{\hat\zvec_i\}_{i=1}^{N_{\rm s}}$.
-
-\paragraph{Two log-space discrepancies.}
-We then form two scalar discrepancies between the generated ensemble and the held-out validation ensemble $\{\zvec_j\}_{j=1}^{N_{\rm ref}}$:
-
-\begin{description}[leftmargin=1.6em,itemsep=0.2em]
-\item[(a) Bandpower-shape discrepancy.]
-Using the flat-sky bandpower estimator $\hat P_b$ of Sec.~\ref{sec:fm_diag_estimator}, compute the binned $D_\ell^{TT}$ of the generated and reference ensembles, $\hat D_b^{\rm gen}$ and $\hat D_b^{\rm ref}$, on the band $\ell\leq\ell_{\max}=1200$. Define
-\begin{equation}
-  \boxed{\;\mathcal S_{\rm shape}(\bar\thetavec)
-  \;=\;
-  \sqrt{\frac{1}{|\mathcal B|}\sum_{b\in\mathcal B}\bigl[\log\hat D_b^{\rm gen}(\bar\thetavec)
-                                                       -\log\hat D_b^{\rm ref}\bigr]^2},\;}
-  \label{eq:S_shape}
-\end{equation}
-the RMS log-relative bandpower error, where $\mathcal B$ collects the bandpowers with strictly positive $\hat D_b$ on both sides. This is the term \texttt{spectral\_shape\_log\_rmse} computed inside \texttt{run\_spectral\_diagnostics} (cell 53). Working in log-space matches the dynamic range of the patch power spectrum (about four decades from large-scale modes to the patch Nyquist) and means a $10\%$ relative deficit at any single $\ell$ contributes the same amount whether it sits at low or high $\ell$.
-
-\item[(b) Pixel-variance discrepancy.]
-Let $\sigma_c^{\rm gen},\sigma_c^{\rm ref}$ denote the per-channel pixel-level standard deviations on the generated and reference ensembles ($c=1$ for the temperature-only run; $c=1,2,3$ in the full $TQU$ extension). Define
-\begin{equation}
-  \boxed{\;\mathcal S_{\rm var}(\bar\thetavec)
-  \;=\;
-  \sqrt{\frac{1}{C}\sum_{c=1}^{C}\bigl[\log\sigma_c^{\rm gen}(\bar\thetavec)
-                                       -\log\sigma_c^{\rm ref}\bigr]^2}.\;}
-  \label{eq:S_var}
-\end{equation}
-This is the term \texttt{spectral\_std\_log\_l2} of cell 53. It pins the integrated patch-level variance, which is essentially $\sum_b D_b/(2\pi)$ but evaluated directly in pixel space and therefore robust to small $\ell$-binning artefacts.
-\end{description}
-
-\paragraph{The combined score.}
-The scalar used for checkpoint selection is the sum
-\begin{equation}
-  \boxed{\;\mathcal S(\bar\thetavec)\;=\;\mathcal S_{\rm shape}(\bar\thetavec)\;+\;\mathcal S_{\rm var}(\bar\thetavec).\;}
-  \label{eq:S_total}
-\end{equation}
-Both summands are L2 norms in log-space and therefore unitless and roughly comparable in magnitude after $D_\ell^{TT}$ is restricted to $\ell\leq\ell_{\max}$. \eqref{eq:S_total} is computed inside \texttt{run\_spectral\_diagnostics} as
-\begin{verbatim}
-spectral_selection_score = (
-    spectral_shape_log_rmse + spectral_std_log_l2
-)
-\end{verbatim}
-A monotone decrease of $\mathcal S$ during training is what we want to see; in the over-regularised run that motivated the present pure-CFM ablation, $\mathcal S$ reached a global minimum near epoch $\sim 1000$ and then drifted back up monotonically to $\sim 2.5\times$ that value, as the auxiliary log-power loss continued to push gradient into low-$\ell$ once the CFM term had already saturated.
-
-\paragraph{Sampling configuration.}
-For the production runs we use $N_{\rm s}=32$ patches and $N_{\rm steps}=1600$ Heun substeps in the spectral diagnostic (the constructor arguments \texttt{spectral\_n\_samples=32, spectral\_n\_steps=1600} of cell 58). The smoothing scale $\sigma_{\rm pix}$ matches the kernel applied at the pre-comparison step in cell 53; in the $TT$ pipeline this is the same $\sigma_{\rm pix}=1.2$ pixels we use for the post-training $D_\ell^{TT}$ figure. The reference ensemble is the held-out validation split of the saved $p(f)$ patches.
-
-\subsubsection{Best-validation-spectral checkpointing}
-\label{sec:fm_best_spectral_protocol}
-
-\paragraph{Selection rule.}
-A scalar \texttt{best\_spectral\_score} is initialised to $\texttt{None}$ at the start of training. At every diagnostic step where the spectral score $\mathcal S$ is finite we update
-\begin{equation}
-  \mathcal S^\star \;\leftarrow\; \min\!\bigl(\mathcal S^\star,\,\mathcal S(\bar\thetavec_n)\bigr),
-  \label{eq:running_min}
-\end{equation}
-and whenever a new minimum is achieved we additionally snapshot the live and the EMA weights:
-\begin{equation}
-  \texttt{best\_spectral\_model\_state\_dict}\;\leftarrow\;\thetavec_n,\qquad
-  \texttt{best\_spectral\_ema\_state\_dict}\;\leftarrow\;\bar\thetavec_n,
-\end{equation}
-together with the epoch index \texttt{best\_spectral\_epoch}. This logic lives at lines $4116$--$4128$ of cell 53.
-
-\paragraph{What the saved checkpoint contains.}
-At the end of training, cell 58 writes a single file with both the last-epoch weights and the best-spectral snapshot:
-\begin{equation}
-  \mathcal C \;=\; \bigl\{\thetavec_{\rm last},\,\bar\thetavec_{\rm last},\,
-                                  \thetavec_n^\star,\,\bar\thetavec_n^\star,\,
-                                  \mathcal S^\star,\,n^\star,\,
-                                  \text{schedule \& sampler config},\,
-                                  \text{training history}\bigr\},
-\end{equation}
-saved as \texttt{checkpoints/unet\_cmb\_t\_pure\_cfm\_linear\_heun\_ema.pt}. The downstream evaluation cell prefers $\bar\thetavec^\star$ over $\bar\thetavec_{\rm last}$ whenever it is present (cell 59 uses the key \texttt{best\_spectral\_ema\_state\_dict} when available; cell 53 implements the same fallback in the post-training sampling block). The "final answer" of the run is therefore the EMA snapshot at the epoch at which $\mathcal S$ was lowest, not the last EMA snapshot.
-
-\paragraph{Why the best-along-the-way and not early stopping.}
-The two protocols are operationally similar but conceptually different. Early stopping halts training when $\mathcal S$ stops improving for a patience window and discards everything afterwards; the best-along-the-way protocol used here continues training to the full $20{,}000$-epoch budget and only \emph{retains} the best snapshot. The two coincide when $\mathcal S$ is monotonically non-increasing and diverge whenever it is not. With a generic non-convex loss surface and a finite-batch estimator of $\mathcal S$, the latter is essentially never the case, and continuing to train past a local plateau lets the optimiser explore a different basin while keeping the previous best in cold storage. For our problem this matters: the best-spectral epoch is typically reached well before the AdamW-with-cosine-anneal trajectory has fully relaxed, and the loss landscape continues to evolve. The cost of the extra epochs is small (the bulk of the per-step cost is already spent on the U-Net forward pass) and the upside is non-trivial robustness against late-stage optimisation drift.
-
-\paragraph{Why $\mathcal S$ rather than the validation $\mathcal L_{\rm CFM}$.}
-The validation $\mathcal L_{\rm CFM}$ is dominated by mid-$t$ contributions where $\langle\|u_t\|^2\rangle$ is largest, and even an optimal model retains the irreducible MMSE there. Two snapshots with identical validation $\mathcal L_{\rm CFM}$ can therefore have visibly different $\hat D_\ell^{TT}$. The spectral score $\mathcal S$ is computed end-to-end through the same solver and same flat-sky bandpower estimator as the post-training $D_\ell^{TT}$ figure, so it is monotonically related to the user-facing deliverable. Selecting on $\mathcal S$ is therefore the cheapest way to ensure that the saved checkpoint matches the reference ensemble in the same metric space in which the result is ultimately reported.
-
-\subsubsection{End-to-end protocol summary}
-
-Concretely, at every diagnostic step $n$ where the training-time spectral diagnostic fires:
-\begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
-  \item \emph{EMA hot-swap.} \texttt{store} the live $\thetavec_n$, then \texttt{copy\_to} the shadow $\bar\thetavec_n$ (\eqref{eq:ema_update}).
-  \item \emph{Reverse sampling.} Draw $N_{\rm s}=32$ initial states $\xvec_0\sim\mathcal N(0,I)$ and integrate \eqref{eq:flow_ode_diag} from $t_{\min}=0$ to $t_{\max}=0.995$ with $N_{\rm steps}=1600$ Heun substeps and state clip $|\xvec_t|\leq 5$.
-  \item \emph{Endpoint denoising.} Reconstruct $\hat\xvec_0$ from $\xvec_{t_{\max}}$ using Eq.~(\ref{eq:x0_recon}); the simulator returns $\xvec_{t_{\max}}$ rather than clean data.
-  \item \emph{Spectral comparison.} Smooth both generated and reference patches with $\sigma_{\rm pix}$, compute $\hat D_b^{\rm gen}$ and $\hat D_b^{\rm ref}$, and form $\mathcal S = \mathcal S_{\rm shape} + \mathcal S_{\rm var}$ via \eqref{eq:S_shape}--\eqref{eq:S_total}.
-  \item \emph{Best-snapshot update.} If $\mathcal S<\mathcal S^\star$, update $\mathcal S^\star\leftarrow\mathcal S$ and snapshot $(\thetavec_n^\star,\bar\thetavec_n^\star,n^\star)$ via \eqref{eq:running_min}.
-  \item \emph{EMA hot-restore.} \texttt{restore} the backup so the next optimiser step continues on the live trajectory.
-\end{enumerate}
-At the end of the $20{,}000$-epoch run the saved checkpoint $\mathcal C$ contains both the last-epoch and the best-spectral snapshots, and the downstream sampler defaults to $\bar\thetavec^\star$.
 
 \subsection{Sampling: deterministic ODE integration}
 \label{sec:fm_sample_pipeline}
@@ -1226,182 +1073,41 @@ For the figures shown below, we draw $N_{\rm gen}=64$ samples with $N_{\rm steps
 \subsection{Diagnostics: validating the learned prior}
 \label{sec:fm_diagnostics}
 
-The natural figure of merit for a learned CMB prior is the agreement of the second moments of the patch ensemble between the generated samples and an independent reference ensemble drawn from the same underlying physics. The notebook is currently restricted to the temperature/intensity sub-problem, so the diagnostic discussion below specialises to the $TT$ channel; the polarisation $EE/BB/TE$ counterparts are recovered in the same form once the polarisation pipeline is reintroduced. The same logic applies to the foreground prior $p(x)$, evaluated on its own held-out validation split.
+The natural figure of merit for a CMB-prior model is the agreement of the second moments (the patch power spectra) between the generated ensemble and an independent reference ensemble drawn from the same underlying physics. We use two independent reference ensembles to disentangle systematic biases in the trained model from systematic biases in the flat-sky estimator itself.
 
 \subsubsection{Reference ensembles}
 
-We compare the generated samples against two independent reference ensembles, so that systematic biases of the trained network can be separated from systematic biases of the patch / flat-sky estimator pipeline.
-
 \begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
-  \item \emph{Validation patches.} The held-out validation split of the saved prior dataset (Sec.~\ref{sec:data_savedpriors}). These patches share the entire upstream pipeline -- CAMB spectra (with curved-sky lensing for $p(f)$), HEALPix pixelisation, beam, scalar pixel window, gnomonic projection, mask, per-channel standardisation -- with the training set, but are drawn from full-sky realisations that are statistically independent from the training realisations because of the by-map split. They are therefore a faithful empirical realisation of the target distribution $\pdata$ that the network is asked to learn.
-  \item \emph{Monte Carlo theory band.} An independent batch of clean-patch realisations is constructed from a freshly drawn ensemble of full-sky Gaussian CMB realisations, generated from the lensed CAMB $TT$ spectrum at the same beam, pixel window, and $N_{\rm side}$ as the training set, and processed through the identical patch-extraction and flat-sky estimator pipeline. This MC ensemble does \emph{not} pass through any neural network: the only difference between it and the validation ensemble is the absence of the lenspyx remap, which is irrelevant for $TT$ at the percent level on $\ell\!<\!1200$.
+  \item \emph{Validation patches.} The held-out validation split of the saved prior dataset (Sec.~\ref{sec:data_savedpriors}). These patches share the entire upstream pipeline -- CAMB spectra (with curved-sky lensing for $p(f)$), HEALPix pixelisation, beam, polarisation-aware pixel window, gnomonic projection, mask, per-channel standardisation -- with the training set, but are drawn from full-sky realisations that are statistically independent from the training realisations because of the by-map split. They are therefore a faithful empirical realisation of the target distribution $\pdata$ that the network is asked to learn.
+  \item \emph{Monte Carlo theory band.} An independent batch of clean-patch realisations is constructed from a freshly drawn ensemble of full-sky Gaussian CMB realisations, generated from the lensed CAMB spectra at the same beam, pixel window, and $N_{\rm side}$ as the training set, and processed through the identical patch-extraction and flat-sky estimator pipeline. This MC ensemble does \emph{not} pass through any neural network: the only difference between it and the validation ensemble is the absence of the lenspyx remap and of the foreground-side pipeline, both of which are irrelevant for the $TT/EE/TE$ comparison and dominate only the high-$\ell$ tail of $BB$ for $p(f)$.
 \end{enumerate}
-A feature of the generated curve that is also present in the MC theory band must be an artefact of the patch / flat-sky estimator pipeline itself; conversely, a feature that is present only in the generated band is a genuine bias of the trained prior.
-\subsubsection{\texorpdfstring{Flat-sky $TT$ bandpower estimator}{Flat-sky TT bandpower estimator}}
-\label{sec:fm_diag_estimator}
+A feature of the generated ensemble that is also present in the MC theory band must be an artefact of the patch / flat-sky estimator pipeline rather than of the network; conversely, a feature that is present only in the generated band is a genuine bias of the trained prior.
 
-For a flat-sky patch of side $L=N\Delta x$ with pixel resolution $\Delta x$, write its discrete Fourier transform
+\subsubsection{\texorpdfstring{Flat-sky $D_\ell$ comparison: definition}{Flat-sky D\_ell comparison: definition}}
+
+For a batch $\{\xvec_i\}_{i=1}^B$ of de-standardised flat-sky $(T,Q,U)$ patches, we estimate the binned cross-spectra $C_\ell^{XY}$ for $XY\in\{TT,EE,BB,TE\}$ by the standard FFT-based estimator of Sec.~\ref{sec:flatsky},
 \begin{equation}
-  \widetilde T(\bm k)
-  \;=\;\sum_{\bm x} T(\bm x)\,\exp(-\mathrm i\bm k\!\cdot\!\bm x)\,(\Delta x)^2,\qquad
-  \bm k\in\Bigl\{\tfrac{2\pi}{L}(n_x,n_y):n_{x,y}=-\tfrac{N}{2},\ldots,\tfrac{N}{2}-1\Bigr\}.
-  \label{eq:patch_fft}
-\end{equation}
-The flat-sky multipole assigned to each Fourier pixel is
-\begin{equation}
-  \ell(\bm k)\;=\;2\pi\,|\bm k|,
-\end{equation}
-which is the leading-order curved-to-flat-sky correspondence valid on the patch sizes we use (Sec.~\ref{sec:flatsky}). Given a batch $\{T_i\}_{i=1}^B$ of patches and a partition of the multipole axis into bandpowers $\{\mathcal B_b\}$, the isotropic two-point estimator at bin $b$ is
-\begin{equation}
-  \hat P_b
-  \;=\;\frac{(\Delta x)^2}{N^2}\,
-  \frac{1}{N^{(b)}_{\rm modes}}
-  \sum_{\bm k:\ell(\bm k)\in\mathcal B_b}
+  \hat C_b^{XY}
+  \;=\;
+  \frac{(\Delta\ell^{\rm pix})^2}{N_b}
+  \sum_{\bm k\in\Omega_b}
   \frac{1}{B}\sum_{i=1}^B
-  \bigl|\widetilde T_i(\bm k)\bigr|^2,
-  \label{eq:flatsky_tt_estimator}
+  \mathrm{Re}\Bigl(\widetilde X_i^*(\bm k)\,\widetilde Y_i(\bm k)\Bigr),
 \end{equation}
-with $N^{(b)}_{\rm modes}=|\{\bm k:\ell(\bm k)\in\mathcal B_b\}|$ the number of Fourier pixels in bandpower $b$. The factor $(\Delta x)^2/N^2$ is the standard discrete-Fourier normalisation that makes $\hat P_b$ a consistent estimator of the continuum patch power $C_\ell^{TT}$ on the central band of the Fourier grid \cite{hivon2002master}. We additionally plot the CMB-style power
+where $\Omega_b$ is the multipole annulus indexing bin $b$, $N_b=|\Omega_b|$, $(\Delta\ell^{\rm pix})^2$ is the per-mode normalisation, and $\widetilde X_i,\widetilde Y_i$ are the 2D FFTs of the patch maps after rotation of $(Q,U)$ into the local $(E,B)$ basis. We then plot
 \begin{equation}
-  \hat D_b
-  \;=\;\frac{\ell_b(\ell_b+1)}{2\pi}\,\hat P_b,\qquad
-  \ell_b\equiv\text{bin centre},
-  \label{eq:patch_dell}
+  D_\ell \;=\; \frac{\ell(\ell+1)}{2\pi}\,C_\ell
 \end{equation}
-which is the conventional axis on which the $TT$ acoustic peaks are most easily read off.
-
-The number of Fourier pixels falling in an annulus $\mathcal B_b=[\ell_b^L,\ell_b^R)$ is
-\begin{equation}
-  N^{(b)}_{\rm modes}
-  \;=\;\frac{\pi\bigl((\ell_b^R)^2-(\ell_b^L)^2\bigr)}{(\Delta k)^2}
-  \;=\;\frac{\bigl((\ell_b^R)^2-(\ell_b^L)^2\bigr)\,L^2}{4\pi},
-  \label{eq:n_modes_per_bin}
-\end{equation}
-where $\Delta k=2\pi/L$ is the Fourier-grid spacing. We use Eq.~(\ref{eq:n_modes_per_bin}) heavily below; it controls the per-bin cosmic variance and the relative information content of different binning conventions.
-\subsubsection{Bandpower binning conventions used in the notebook}
-\label{sec:fm_diag_binning}
-
-Two bandpower partitions of the multipole axis are used in parallel because they have very different statistical properties. Both estimators take the same input batch of patches and the same Eq.~(\ref{eq:flatsky_tt_estimator}); they differ only in the choice of bin edges $\{\ell_b^L,\ell_b^R\}$ and bin centres $\ell_b$.
-
-\paragraph{Linear bandpowers (\texttt{flat\_sky\_tt\_spectrum}).} The default linear estimator places $N_{\rm bin}=\min(N/2,30)$ bins of equal width on $[0,\ell_{\max}]$, with $\ell_{\max}=\max_{\bm k}\ell(\bm k)$ the maximum Fourier multipole on the diagonal of the patch grid. Bin centres are arithmetic midpoints,
-\begin{equation}
-  \ell_b^L=b\Delta\ell,\qquad
-  \ell_b^R=(b{+}1)\Delta\ell,\qquad
-  \ell_b=\tfrac12(\ell_b^L+\ell_b^R),\qquad
-  \Delta\ell=\frac{\ell_{\max}}{N_{\rm bin}},
-  \label{eq:linear_binning}
-\end{equation}
-for $b=0,\ldots,N_{\rm bin}{-}1$, with the right edge of the last bin closed. Inserting Eq.~(\ref{eq:linear_binning}) into Eq.~(\ref{eq:n_modes_per_bin}) gives, at fixed $\Delta\ell$,
-\begin{equation}
-  N^{(b),{\rm lin}}_{\rm modes}\;=\;\frac{(2\ell_b)\,\Delta\ell\,L^2}{4\pi}
-  \;\propto\;\ell_b\,\Delta\ell,
-\end{equation}
-so the mode count per bin grows linearly with the bin centre. In particular, the lowest bin contains few modes (only those Fourier pixels at $\ell\!\leq\!\Delta\ell$, including the patch fundamental at $\ell_{\rm fund}=2\pi/L$), while the highest bin aggregates many.
-
-\paragraph{Logarithmic bandpowers (\texttt{flat\_sky\_tt\_spectrum\_binned}).} The log-binned estimator places $N_{\rm bin}=48$ bins of equal logarithmic width on $[\ell_{\min},\ell_{\max}]$, with $\ell_{\min}=\min_{\bm k:\bm k\neq 0}\ell(\bm k)=\ell_{\rm fund}$ and bin centres set to the geometric midpoint,
-\begin{equation}
-  \ell_b^L=\ell_{\min}\,e^{b\,\Delta\ln\ell},\qquad
-  \ell_b^R=\ell_{\min}\,e^{(b+1)\,\Delta\ln\ell},\qquad
-  \ell_b=\sqrt{\ell_b^L\,\ell_b^R},\qquad
-  \Delta\ln\ell=\frac{\ln\ell_{\max}-\ln\ell_{\min}}{N_{\rm bin}}.
-  \label{eq:log_binning}
-\end{equation}
-For each bin, $\ell_b^R-\ell_b^L=\ell_b\,(e^{\Delta\ln\ell/2}-e^{-\Delta\ln\ell/2})\approx \ell_b\,\Delta\ln\ell$, and so Eq.~(\ref{eq:n_modes_per_bin}) gives
-\begin{equation}
-  N^{(b),{\rm log}}_{\rm modes}\;\approx\;\frac{\ell_b^2\,\Delta\ln\ell\,L^2}{2\pi}
-  \;\propto\;\ell_b^2,
-\end{equation}
-so the mode count per bin grows quadratically with the bin centre. Empty bins (those for which $N^{(b)}_{\rm modes}=0$ on the discrete grid) are dropped from the output. The log estimator is the convention adopted in most generative-model patch-spectrum figures and is therefore retained for stylistic compatibility, but it should be read with the cosmic-variance considerations of Sec.~\ref{sec:fm_diag_cosmic_variance} in mind.
-
-\paragraph{Legacy single-input estimator (\texttt{flat\_sky\_tt\_power\_spectrum}).} For backward compatibility with the earliest notebook drafts, a single-input variant operating on $(N,H,W)$ arrays of bare temperature patches is retained. It implements Eq.~(\ref{eq:flatsky_tt_estimator}) with the linear binning of Eq.~(\ref{eq:linear_binning}); the only difference from \texttt{flat\_sky\_tt\_spectrum} is the input layout and a uniform-batch averaging convention. The two estimators give numerically identical results on $(N,1,H,W)$ inputs.
-\subsubsection{Pixel-space Gaussian smoothing (\texttt{gaussian\_smooth\_patches\_t})}
-\label{sec:fm_diag_smoothing}
-
-Both the reference and the generated patches are passed through a mild isotropic Gaussian filter before the spectrum is estimated. With $G_{\sigma}$ the unit-area normalised 2D Gaussian of width $\sigma_{\rm pix}$ pixels,
-\begin{equation}
-  G_{\sigma}(\bm x)\;=\;\frac{1}{2\pi\sigma_{\rm pix}^2(\Delta x)^2}\,
-  \exp\!\Bigl(-\frac{|\bm x|^2}{2\sigma_{\rm pix}^2(\Delta x)^2}\Bigr),
-\end{equation}
-the smoothed patch is the convolution
-\begin{equation}
-  T_\sigma(\bm x)\;=\;(G_\sigma\!\ast\!T)(\bm x),
-  \qquad
-  \widetilde T_\sigma(\bm k)\;=\;\widetilde G_\sigma(\bm k)\,\widetilde T(\bm k),
-\end{equation}
-with Fourier-space transfer function
-\begin{equation}
-  \widetilde G_\sigma(\bm k)
-  \;=\;\exp\!\bigl(-\tfrac12\sigma_{\rm pix}^2(\Delta x)^2|\bm k|^2\bigr).
-\end{equation}
-Equivalently, the smoothed bandpower estimator is
-\begin{equation}
-  \hat P_b^{\sigma}\;=\;
-  \frac{1}{N^{(b)}_{\rm modes}}
-  \sum_{\bm k:\ell(\bm k)\in\mathcal B_b}
-  e^{-\sigma_{\rm pix}^2(\Delta x)^2|\bm k|^2}\,
-  \frac{1}{B}\sum_{i=1}^B
-  \bigl|\widetilde T_i(\bm k)\bigr|^2\,(\Delta x)^2/N^2.
-  \label{eq:smoothed_bandpower}
-\end{equation}
-The kernel half-power scale is at $\ell^*\!\approx\!2\pi/(\sigma_{\rm pix}\Delta x)$. With the production setting $\sigma_{\rm pix}=1.2$ at $\Delta x=6.7'$ this places $\ell^*\!\approx\!1.3\!\times\!10^3$, deeply inside the band of validity of the small-patch flat-sky approximation. The smoothing acts as a high-pass suppression of artefacts of the deterministic ODE integrator and of pixel discretisation that contaminate the very-high-$\ell$ tail of the unsmoothed spectrum; because it is applied identically to the generated and reference batches, it does not bias the comparison and can be turned off by setting $\sigma_{\rm pix}=0$. In what follows, $P$ refers to the unsmoothed power and $P^{\sigma}$ to the smoothed power.
-
-\subsubsection{Integrated and band-limited variance diagnostics}
-\label{sec:fm_diag_variance}
-
-In addition to the binned spectra, two scalar variance diagnostics are recorded from the very same patches. Let $\sigma_{\rm tot}^2$ denote the empirical patch variance, and $\sigma_{\rm sm}^2$ the variance of the same patches after the Gaussian smoothing of Sec.~\ref{sec:fm_diag_smoothing}. By Parseval, the population versions satisfy
-\begin{align}
-  \sigma_{\rm tot}^2 \;&=\; \int\!\frac{d^2k}{(2\pi)^2}\,P(\bm k), \label{eq:sigma_tot}\\
-  \sigma_{\rm sm}^2 \;&=\; \int\!\frac{d^2k}{(2\pi)^2}\,P(\bm k)\,
-    e^{-\sigma_{\rm pix}^2(\Delta x)^2|\bm k|^2}, \label{eq:sigma_sm}
-\end{align}
-with empirical estimates obtained by direct pixel-domain $\Var(\cdot)$ on the (smoothed) patch arrays, which is what the notebook prints. Equation~(\ref{eq:sigma_tot}) is the integrated power, dominated by the high-$\ell$ tail (where most modes live); Eq.~(\ref{eq:sigma_sm}) suppresses high-$\ell$ exponentially and is therefore dominated by the low-to-medium $\ell$ band, with effective cutoff $\ell\!\lesssim\!\ell^*$. The two scalar ratios
-\begin{equation}
-  r_{\rm tot}\;=\;\frac{\sigma^{\rm gen}_{\rm tot}}{\sigma^{\rm ref}_{\rm tot}},\qquad
-  r_{\rm sm}\;=\;\frac{\sigma^{\rm gen}_{\rm sm}}{\sigma^{\rm ref}_{\rm sm}},
-  \label{eq:variance_ratios}
-\end{equation}
-together provide a coarse but powerful test of whether any amplitude bias is uniform across angular scales. If the model is biased by an overall multiplicative factor on $P$, both ratios are equal. If $r_{\rm sm}<r_{\rm tot}$, the bias is concentrated at the larger angular scales weighted by Eq.~(\ref{eq:sigma_sm}); if $r_{\rm sm}>r_{\rm tot}$, the bias is concentrated at higher $\ell$. The expected ``power-equivalent'' under a uniform amplitude rescale, namely $r_{\rm tot}^2$, is also reported as a sanity reference.
-
-\subsubsection{Variance-matched comparison}
-\label{sec:fm_diag_vm}
-
-To isolate spectral shape mismatches from overall amplitude biases, we additionally compute a variance-matched generated batch
-\begin{equation}
-  T^{\rm vm}_i(\bm x)\;=\;\frac{\sigma^{\rm ref}_{\rm tot}}{\sigma^{\rm gen}_{\rm tot}}\,T^{\rm gen}_i(\bm x),
-  \label{eq:vm_field}
-\end{equation}
-with the rescaling factor estimated from the same batches used for the spectral comparison (this is the line \texttt{gen\_vm\_sp = gen\_sp * \_sc.reshape(1,1,1,1)} of \texttt{run\_spectral\_diagnostics}). Its bandpower follows immediately from linearity of Eq.~(\ref{eq:flatsky_tt_estimator}),
-\begin{equation}
-  \hat P^{\rm vm}_b
-  \;=\;\biggl(\frac{\sigma^{\rm ref}_{\rm tot}}{\sigma^{\rm gen}_{\rm tot}}\biggr)^{\!2}\,\hat P^{\rm gen}_b.
-  \label{eq:vm_bandpower}
-\end{equation}
-By construction the variance-matched and reference batches agree on $\sigma_{\rm tot}^2=\int P\,d^2k/(2\pi)^2$. Any residual disagreement of $\hat P^{\rm vm}_b$ with the reference $\hat P^{\rm ref}_b$ is therefore a pure shape bias: a redistribution of power across $\ell$ at fixed integrated variance, that no overall rescale can absorb. We also record the corresponding spectral mismatch metrics on both the raw and the variance-matched bandpowers, so that the contribution of amplitude and shape to the overall residual can be tracked independently across training.
-\subsubsection{Cosmic variance per bin}
-\label{sec:fm_diag_cosmic_variance}
-
-For a Gaussian random field, the bandpower estimator of Eq.~(\ref{eq:flatsky_tt_estimator}) follows a chi-squared distribution and its variance is, to leading order in $1/N^{(b)}_{\rm modes}$ and $1/B$,
-\begin{equation}
-  \frac{\Var(\hat P_b)}{P_b^2}
-  \;\approx\;\frac{2}{B\,N^{(b)}_{\rm modes}},
-  \label{eq:cosmic_variance_per_bin}
-\end{equation}
-where $B$ is the number of patches and $N^{(b)}_{\rm modes}$ is given by Eq.~(\ref{eq:n_modes_per_bin}). Three remarks follow.
-
-\begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
-  \item \emph{Linear vs.\ logarithmic binning at low $\ell$.} The same patch ensemble carries very different per-bin uncertainties under the two binnings of Sec.~\ref{sec:fm_diag_binning}. At the patch fundamental $\ell\!\approx\!\ell_{\rm fund}\!\approx\!50$ for our $7^\circ$ patches, the linear estimator's first bin extends from $\ell=0$ to $\ell=\Delta\ell\!\approx\!76$ and aggregates roughly $\bigl(\ell_{\rm fund}+\Delta\ell\bigr)\Delta\ell\,L^2/(4\pi)\!\approx\!7$ Fourier pixels. With $B=64$ patches this gives $\sigma(\hat P_0)/P_0 \approx \sqrt{2/(64\cdot 7)}\approx 6.7\%$, a small enough scatter that any low-$\ell$ deficit of order $\sim\!10\%$ is statistically resolved at first-bin level. The log estimator, with $\Delta\ln\ell\approx 0.083$, places the same low-$\ell$ region across roughly $\sim\!10$ very narrow bins, each containing $\lesssim\!1$ Fourier pixel and a per-bin scatter of $\sigma(\hat P_b)/P_b\approx \sqrt{2/64}\approx 18\%$. The two visualisations therefore highlight different things: the linear plot exposes any low-$\ell$ amplitude deficit as a single high-precision data point, while the log plot resolves the same deficit across many independently-noisy points and is visually softened by the eye's tendency to trend-match.
-  \item \emph{Visual interpretation.} A model bias smaller than the per-bin $1\sigma$ scatter of Eq.~(\ref{eq:cosmic_variance_per_bin}) is statistically indistinguishable from a fluctuation. The Monte Carlo theory band of Sec.~5.6.1 provides a direct numerical estimate of this floor at every $\ell$, by replicating the per-bin scatter with independent realisations of the target distribution, and is the recommended visual ruler against which the generated curve is read.
-  \item \emph{Practical recommendation.} For a strict go/no-go test on the $TT$ amplitude at low $\ell$, the linear-binned plot is the relevant diagnostic. The log-binned plot is the appropriate visualisation when comparing across decades of $\ell$ on a single axis, and should be read in conjunction with the per-bin uncertainty implied by Eq.~(\ref{eq:cosmic_variance_per_bin}).
-\end{enumerate}
+on a linear bin grid up to a comparison multipole $\ell^{\max}_{\rm cmp}=1200$. Both ensembles are passed through identically the same pre-processing chain -- inverse standardisation back to $\mu\mathrm{K}_{\rm CMB}$-based map units, then a mild symmetric Gaussian smoothing of $\sigma_{\rm pix}=1.2$ pixels -- before the spectrum is computed, so that any pre-processing bias cancels exactly between the generated and reference bands.
 
 \subsubsection{Why this is the relevant test for a CMB prior}
 
-For a Gaussian field, the angular power spectrum is a sufficient statistic and an exact match of the second moments is mathematically equivalent to learning the distribution. For the lensed CMB the field is mildly non-Gaussian (the lensing-induced 4-point function leaves an imprint at the level of $\sim\!1\%$ of the variance at the Planck angular resolution), but on the angular scales resolved by the patch ($\ell\!\lesssim\!1200$) the second-moment test still captures the bulk of the information content. For the Galactic foregrounds the field is more strongly non-Gaussian, but the second-moment comparison remains the standard first-line diagnostic and is the quantity that downstream component-separation analyses are most sensitive to. We therefore treat the $D_\ell^{TT}$ comparison, together with the integrated and band-limited variance diagnostics of Sec.~\ref{sec:fm_diag_variance} and the variance-matched comparison of Sec.~\ref{sec:fm_diag_vm}, as the principal go/no-go tests of the trained prior, and reserve higher-order tests (cross-power spectrum residuals, pixel-domain histograms, and one-point statistics) for follow-up work.
+For a Gaussian field, the angular power spectrum is a sufficient statistic and an exact match of the second moments is mathematically equivalent to learning the distribution. For the lensed CMB the field is mildly non-Gaussian (the lensing-induced $4$-point function leaves an imprint at the level of $\sim\!1\%$ of the variance at the Planck angular resolution), but on the angular scales resolved by the patch ($\ell\!\lesssim\!1200$) the second-moment test still captures the bulk of the information content. For the Galactic foregrounds the field is more strongly non-Gaussian, but the second-moment comparison remains the standard first-line diagnostic and is the quantity that downstream component-separation analyses are most sensitive to. We therefore treat the $D_\ell^{XY}$ comparison as the principal go/no-go test of the trained prior, and reserve higher-order tests (cross-power spectrum residuals, pixel-domain histograms, and one-point statistics) for follow-up work.
 
 \begin{figure}[h]
   \centering
   \includegraphics[width=0.95\linewidth]{spectral_comparison7.png}
-  \caption{Post-training flat-sky $D_\ell$ comparison for the trained $p(f)$ prior in $\mu\mathrm{K}_{\rm CMB}$-based map units (after de-standardisation), shown here on the legacy four-panel layout produced by an earlier $(T,Q,U)$-channel run of the notebook for visual context. The current notebook is restricted to temperature, and the relevant panel is the top-left $D_\ell^{TT}$. Solid black: validation patches drawn from the saved $p(f)$ prior, the empirical reference distribution. Dashed coloured: patches generated by the trained deterministic flow-matching model, sampled with the Heun second-order ODE integrator at $N_{\rm steps}=1200$, $t\in[0,0.995]$, and a state-clipping bound $|\xvec|\!\leq\!5$. Dotted grey: Monte Carlo theory band built from independent Gaussian full-sky realisations of the lensed CAMB spectra passed through the identical patch and flat-sky pipeline. The agreement between the validation and theory bands is a calibration check on the patch / flat-sky estimator pipeline itself; the agreement between the generated and validation bands is the direct test of the trained prior.}
+  \caption{Post-training flat-sky $D_\ell^{XY}$ comparison in $\mu\mathrm{K}_{\rm CMB}$-based map units (after de-standardisation), for $XY\in\{TT,EE,BB,TE\}$. Solid black: validation patches drawn from the saved $p(f)$ prior ($N_{\rm ref}=3277$), which constitute the empirical reference distribution. Dashed coloured: $N_{\rm gen}=64$ patches generated by the trained deterministic flow-matching model, sampled with the Heun second-order ODE integrator at $N_{\rm steps}=1200$, $t\in[0,0.995]$, and a state-clipping bound $|\xvec|\!\leq\!5$. Dotted grey: Monte Carlo theory band built from $8$ independent Gaussian full-sky realisations of the lensed CAMB spectra passed through the identical patch and flat-sky pipeline ($N_{\rm theory}\!=\!512$ patches). The agreement between the validation and theory bands is a calibration check on the patch / flat-sky estimator pipeline itself; the agreement between the generated and validation bands is the direct test of the trained prior.}
   \label{fig:dl_panel_phys}
 \end{figure}
 
@@ -1412,14 +1118,8 @@ For a Gaussian field, the angular power spectrum is a sufficient statistic and a
   \label{fig:dl_panel_norm}
 \end{figure}
 
-\subsubsection{Reading the diagnostics: amplitude vs.\ shape biases}
-
-Combining the binned spectra of Sec.~\ref{sec:fm_diag_binning}, the variance ratios of Eq.~(\ref{eq:variance_ratios}), and the variance-matched comparison of Eq.~(\ref{eq:vm_bandpower}) provides a sharp decomposition of any failure mode of the trained prior into two limiting cases.
-\begin{itemize}[leftmargin=2.0em,itemsep=0.15em]
-  \item \emph{Amplitude bias} (uniform multiplicative error on $P$). Characterised by $r_{\rm tot}\!\approx\!r_{\rm sm}\!\neq\!1$ and a variance-matched curve $\hat P^{\rm vm}_b$ that closely tracks the reference at all $\ell$. Action items: increase the endpoint-reconstruction weight $\lambda_{x_0}$ of Eq.~(\ref{eq:x0_loss}) and/or the radial Fourier weight $\lambda_{\rm rad}$ of Eq.~(\ref{eq:radial_loss}); train longer.
-  \item \emph{Shape bias} (scale-dependent error on $P$). Characterised by $r_{\rm sm}\!\neq\!r_{\rm tot}$ and by a variance-matched curve $\hat P^{\rm vm}_b$ that fails to track the reference in the same multipole range where $\hat P^{\rm gen}_b$ does. The sign of $r_{\rm sm}-r_{\rm tot}$ localises the failure: $r_{\rm sm}\!<\!r_{\rm tot}$ indicates a deficit at low $\ell$, $r_{\rm sm}\!>\!r_{\rm tot}$ at high $\ell$. Action items: weight the radial Fourier loss in Eq.~(\ref{eq:radial_loss}) by $1/(\ell+\ell_0)$ to redirect gradient mass toward the deficient band, or activate a band-limited $L^2$ penalty on $P$ obtained by taking the kernel of Eq.~(\ref{eq:sigma_sm}) as a smoothed-variance loss.
-\end{itemize}
-The current state of the trained $p(f)$ prior at the production run reported in Fig.~\ref{fig:dl_panel_phys} is most consistent with a shape bias localised at $\ell\!\lesssim\!200$, with $r_{\rm sm}\!\approx\!0.82$ noticeably smaller than $r_{\rm tot}\!\approx\!0.92$. The variance-matched curve closes most but not all of the residual at low $\ell$, confirming that the dominant failure mode is a redistribution of power at fixed integrated variance and is therefore a pure shape problem rather than a uniform amplitude undershoot. The $\ell$-weighted radial loss and the smoothed-variance pin are therefore the natural follow-up training experiments.
+\subsubsection{Reading the diagnostics}
+The validation and theory bands in Fig.~\ref{fig:dl_panel_phys} agree across the full range $\ell\in[50,1200]$ in all four channels, confirming that the patch-extraction and flat-sky estimator pipelines are themselves unbiased given the assumed lensed CAMB spectra. The generated band tracks both reference curves to within a few percent on the acoustic peak in $D_\ell^{TT}$ and recovers the $D_\ell^{EE}$, $D_\ell^{BB}$, and $D_\ell^{TE}$ peaks at the correct multipole positions; this is the central qualitative success of the prior-learning stage. The residual scatter visible in $D_\ell^{TE}$ is consistent with cosmic variance at $N_{\rm gen}=64$: on a $\sim\!7^\circ$ patch the number of independent modes per bin is $\mathcal{O}(20)$, so the sample-variance error on a single $D_\ell^{TE}$ bin is $\sim\!20\%$. Increasing $N_{\rm gen}$ to a few hundreds visibly suppresses this scatter while leaving the inferred biases on $D_\ell^{TT,EE,BB}$ unchanged. The remaining systematic trend is a mild low-$\ell$ deficit in $D_\ell^{TT}$ at $\ell\!\lesssim\!100$ (Fig.~\ref{fig:dl_panel_phys}, top-left), bounded by $\sim\!10\%$ of the validation $D_\ell^{TT}$ at the lowest bin, and inherited from the steep schedule near $t\to 0$ where the conditional regression target $\zvec-\e$ is overwhelmingly dominated by the noise component $-\e$. The deficit is absent in the normalised-domain diagnostic of Fig.~\ref{fig:dl_panel_norm}, which means it is consistent with a per-channel rescaling of the largest scales rather than a structural bias of the model. We list it as the most actionable target for a follow-up training run, where a non-uniform $t$-sampling distribution at the noise end of the path or a logit-normal time-importance sampling along the lines of \cite{karras2022elucidating} would directly address the issue.
 
 
 
@@ -1427,561 +1127,7 @@ The current state of the trained $p(f)$ prior at the production run reported in 
 
 
 
-% ---------- minimal preamble if compiling standalone ----------
-% \documentclass[11pt]{article}
-% \usepackage[margin=1in]{geometry}
-% \usepackage{amsmath, amssymb, amsthm, mathtools}
-% \usepackage{enumitem}
-% \usepackage{listings}
-% \usepackage{xcolor}
-% \newcommand{\xvec}{\mathbf{x}}
-% \newcommand{\bm}[1]{\boldsymbol{#1}}
-% \newcommand{\dd}{\mathrm{d}}
-% \DeclareMathOperator*{\Var}{Var}
-% \lstdefinestyle{nb}{basicstyle=\ttfamily\small,breaklines=true,
-%   keywordstyle=\color{blue!60!black},commentstyle=\color{gray!70!black},
-%   stringstyle=\color{purple!60!black}}
-% \begin{document}
-% ---------------------------------------------------------------
 
-\section{\texorpdfstring{From the trained vector field to the $D_\ell^{TT}$ plot}{From the trained vector field to the D\_ell\^{}TT plot}}
-\label{sec:vf_to_dl}
-
-This section walks through, step by step, what the notebook does between
-``the network has finished training'' and ``the $D_\ell^{TT}$ figure is on the
-screen''. Each subsection states the underlying mathematics and points to the
-exact construct in \texttt{dm\_cmb.ipynb} that implements it. The central
-object is the estimator \texttt{flat\_sky\_tt\_spectrum}, which converts a
-batch of generated temperature patches into a binned isotropic power
-spectrum $\hat P_b$; the $D_\ell^{TT}$ curve is a one‑line cosmetic rescale
-of that estimator output.
-
-The pipeline is the composition
-\begin{equation}
-  \underbrace{\xvec_0\sim\mathcal N(0,I)}_{\text{step 1}}
-  \;\xrightarrow{\ \text{Heun ODE}\ }\;
-  \underbrace{\xvec_{t_{\max}}}_{\text{step 2}}
-  \;\xrightarrow{\ \hat\xvec_0=R(\xvec_t,t)\ }\;
-  \underbrace{\hat T_i^{\text{norm}}}_{\text{step 3}}
-  \;\xrightarrow{\ \mu+\sigma\,\cdot\ }\;
-  \underbrace{T_i}_{\text{step 4}}
-  \;\xrightarrow{\ G_\sigma\ast\ }\;
-  \underbrace{T_i^{\sigma}}_{\text{step 5}}
-  \;\xrightarrow{\ \text{FFT+bin}\ }\;
-  \underbrace{\hat P_b}_{\text{step 6}}
-  \;\xrightarrow{\ \ell(\ell+1)/2\pi\ }\;
-  \underbrace{\hat D_b^{TT}}_{\text{step 7}}.
-  \label{eq:vf_pipeline}
-\end{equation}
-
-\subsection{Step 1 -- Initial noise in normalised patch units}
-\label{sec:vf_step_noise}
-
-A batch of $B=N_{\rm GEN}$ initial states is drawn from the simple base
-distribution
-\begin{equation}
-  \xvec_0 \sim \mathcal N(0, I_{1\times 64\times 64}), \qquad B = N_{\rm GEN},
-  \label{eq:init_noise}
-\end{equation}
-exactly as the network was trained against (Sec.~\ref{sec:fm} of
-the main text). In the notebook this is the line
-\begin{lstlisting}[style=nb]
-x0 = torch.randn(N_GEN, 1, 64, 64, device=device)
-\end{lstlisting}
-The single channel encodes temperature in the \emph{normalised patch units}
-of the prior $p(f)$: the patches the network was trained on were
-standardised per‑channel by $\mu,\sigma$ stored in \texttt{prior\_f}, so
-$\xvec_0$ lives in that same standardised space.
-
-\subsection{Step 2 -- Heun integration of the flow ODE}
-\label{sec:vf_step_heun}
-
-The trained network is the conditional vector field
-$u^\theta:\mathbb R^{1\times 64\times 64}\times[0,1]\to
-\mathbb R^{1\times 64\times 64}$, which approximates the marginal velocity
-that transports $p_{\rm init}=\mathcal N(0,I)$ to the data distribution
-$p_{\rm data}$ along the Gaussian probability path
-\begin{equation}
-  \xvec_t \;=\; \alpha_t\,\xvec_{\rm data} + \beta_t\,\bm\epsilon,
-  \qquad \alpha_t=1-t,\quad \beta_t=t,\quad t\in[0,1].
-  \label{eq:linear_path}
-\end{equation}
-At inference time, samples are produced by integrating the deterministic
-flow ODE
-\begin{equation}
-  \frac{\dd}{\dd t}\xvec_t \;=\; u^\theta(\xvec_t, t), \qquad
-  \xvec_{t_{\min}} \;=\; \xvec_0,
-  \label{eq:flow_ode_postproc}
-\end{equation}
-forward from $t_{\min}{=}\,0.05$ to $t_{\max}{=}\,0.995$ on a uniform grid of
-$N_{\rm steps}{=}\,1200$ points,
-\begin{equation}
-  \{t_n\}_{n=0}^{N_{\rm steps}-1} \;=\; t_{\min} + n\,h, \qquad
-  h \;=\; \frac{t_{\max}-t_{\min}}{N_{\rm steps}-1}.
-  \label{eq:time_grid}
-\end{equation}
-This is set up by
-\begin{lstlisting}[style=nb]
-sde       = trainer.build_sampling_sde()      # wraps unet as u^theta
-simulator = build_sampler(sde)                # -> HeunSimulator (sigma=0)
-ts_1d     = torch.linspace(SAMPLE_T_MIN, SAMPLE_T_MAX, N_STEPS, device=device)
-ts        = ts_1d.view(1,-1,1,1,1).expand(N_GEN,-1,-1,-1,-1)
-\end{lstlisting}
-The Heun second‑order step is implemented in
-\texttt{HeunSimulator.step} as the standard predictor--corrector pair
-\begin{align}
-  \tilde\xvec_{n} \;&=\; \xvec_n + h\,u^\theta(\xvec_n, t_n)
-    && \text{(Euler predictor)}, \label{eq:heun_predictor}\\
-  \xvec_{n+1} \;&=\; \xvec_n + \tfrac{h}{2}\Bigl[u^\theta(\xvec_n,t_n) +
-                 u^\theta(\tilde\xvec_{n}, t_n+h)\Bigr]
-    && \text{(trapezoidal corrector)}, \label{eq:heun_step}
-\end{align}
-giving $\mathcal O(h^3)$ local truncation error vs.\ the $\mathcal O(h^2)$ of
-plain Euler. After each step, \texttt{Simulator.simulate} optionally clips
-the state to a hard box for numerical stability,
-\begin{equation}
-  \xvec_{n+1} \;\leftarrow\; \operatorname{clamp}(\xvec_{n+1},
-  -C,\,+C), \qquad C \;=\; \texttt{STATE\_CLIP\_ABS}\;=\;5,
-  \label{eq:state_clip}
-\end{equation}
-which acts only on rare runaway pixels (the fraction of clipped pixels is
-printed by \texttt{clip\_frac}). The full loop is
-\begin{lstlisting}[style=nb]
-with torch.no_grad():
-    xt_final = simulator.simulate(x0, ts, state_clip_abs=STATE_CLIP_ABS)
-\end{lstlisting}
-and returns the terminal state $\xvec_{t_{\max}}\in\mathbb R^{B\times 1\times
-64\times 64}$ in normalised patch units.
-
-\subsection{\texorpdfstring{Step 3 -- Endpoint denoising: $\xvec_{t_{\max}}\to\hat\xvec_0$}{Step 3 -- Endpoint denoising: x\_tmax -> x0\_hat}}
-\label{sec:vf_step_x0hat}
-
-Because $t_{\max}=0.995<1$, the terminal state is still slightly noisy:
-$\xvec_{t_{\max}} = (1-t_{\max})\,\xvec_{\rm data} + t_{\max}\,\bm\epsilon$ in
-the exact-path picture of Eq.~(\ref{eq:linear_path}). The notebook therefore
-applies the closed‑form endpoint reconstruction implied by the vector field
-and the linear schedule.
-For any path $(\alpha_t,\beta_t)$ one has identically
-\begin{equation}
-  u(\xvec_t,t)
-  \;=\; \frac{\dot\alpha_t\,\beta_t - \alpha_t\,\dot\beta_t}{\beta_t}\,
-        \xvec_{\rm data}
-        + \frac{\dot\beta_t}{\beta_t}\,\xvec_t,
-\end{equation}
-which can be solved for $\xvec_{\rm data}=\hat\xvec_0$ when the determinant
-$\det \equiv \alpha_t\dot\beta_t - \dot\alpha_t\beta_t$ is non‑zero:
-\begin{equation}
-  \hat\xvec_0(\xvec_t,t)
-  \;=\;\frac{\dot\beta_t\,\xvec_t \;-\; \beta_t\,u^\theta(\xvec_t,t)}
-       {\alpha_t\,\dot\beta_t - \dot\alpha_t\,\beta_t}.
-  \label{eq:x0_from_vf_general}
-\end{equation}
-For the linear schedule $\alpha_t=1-t$, $\beta_t=t$, the determinant is
-$\det=(1-t)\cdot 1 - (-1)\cdot t = 1$, so Eq.~(\ref{eq:x0_from_vf_general})
-collapses to
-\begin{equation}
-  \hat\xvec_0(\xvec_t,t) \;=\; \xvec_t \;-\; t\,u^\theta(\xvec_t,t).
-  \label{eq:x0_from_vf_linear}
-\end{equation}
-The implementation lives in
-\texttt{GaussianConditionalProbabilityPath.reconstruct\_x0\_from\_vector\_field}
-and is called via the thin wrapper \texttt{trainer.reconstruct\_x0}:
-\begin{lstlisting}[style=nb]
-t_final  = torch.full((N_GEN,1,1,1), SAMPLE_T_MAX, device=device)
-generated = trainer.reconstruct_x0(xt_final, t_final).cpu().numpy()
-\end{lstlisting}
-The output \texttt{generated} is $\{\hat\xvec_0^{(i)}\}_{i=1}^{B}\in
-\mathbb R^{B\times 1\times 64\times 64}$ -- a batch of denoised patches in
-\emph{normalised patch units}.
-
-\subsection{Step 4 -- De-standardisation to physical units}
-\label{sec:vf_step_denorm}
-
-When the comparison is to be made in $\mu\mathrm K_{\rm CMB}$-based units
-(\texttt{COMPARE\_IN\_PHYSICAL\_UNITS=True}), each pixel of each patch is
-mapped back through the channel-wise mean/std stored in the prior dictionary,
-\begin{equation}
-  T_i(\bm x) \;=\; \mu \;+\; \sigma\,\hat\xvec_0^{(i)}(\bm x),
-  \qquad (\mu,\sigma)=(\texttt{prior\_f['mean']},\texttt{prior\_f['std']}),
-  \label{eq:denorm}
-\end{equation}
-implemented in
-\begin{lstlisting}[style=nb]
-def _denormalize_from_prior(arr, prior_dict):
-    mean = np.asarray(prior_dict['mean'], dtype=np.float32)
-    std  = np.asarray(prior_dict['std' ], dtype=np.float32)
-    return (arr * std + mean).astype(np.float32)
-generated_base = _denormalize_from_prior(generated, prior_f)
-\end{lstlisting}
-In the normalised-domain comparison mode the inverse standardisation is
-skipped and the spectrum is computed directly on $\hat\xvec_0^{(i)}$. In
-both modes the reference batch \texttt{ref\_base} is fed through the
-\emph{same} de-standardisation/identity branch, so the generated and the
-reference are always in the same units before the spectrum is taken.
-
-\subsection{Step 5 -- Optional Gaussian pixel smoothing}
-\label{sec:vf_step_smooth}
-
-Both batches are passed through a mild isotropic 2D Gaussian filter of width
-$\sigma_{\rm pix}=\texttt{SMOOTH\_SIGMA\_PIX}=1.2$ pixels (production
-setting),
-\begin{equation}
-  T_i^{\sigma}(\bm x) \;=\; (G_{\sigma_{\rm pix}} \ast T_i)(\bm x),
-  \qquad
-  \widetilde T_i^{\sigma}(\bm k) \;=\;
-   e^{-\tfrac12\sigma_{\rm pix}^2(\Delta x)^2|\bm k|^2}\,
-   \widetilde T_i(\bm k),
-  \label{eq:smooth_kernel}
-\end{equation}
-implemented as
-\begin{lstlisting}[style=nb]
-generated_sp = gaussian_smooth_patches_t(generated_base, SMOOTH_SIGMA_PIX)
-ref_sp       = gaussian_smooth_patches_t(ref_base,       SMOOTH_SIGMA_PIX)
-\end{lstlisting}
-(the routine \texttt{gaussian\_smooth\_patches\_t} is a thin
-\texttt{scipy.ndimage.gaussian\_filter} wrapper). Because the same kernel is
-applied to generated and reference, the comparison is unbiased; the smoothing
-serves only to suppress sub-pixel artefacts of the ODE integrator at the
-patch Nyquist scale (Sec.~\ref{sec:fm_diag_smoothing}). Setting
-\texttt{SMOOTH\_SIGMA\_PIX=0} reproduces the unsmoothed spectrum.
-
-\subsection{Step 6 -- The estimator \texttt{flat\_sky\_tt\_spectrum}}
-\label{sec:vf_step_estimator}
-
-This is the heart of the section. The call
-\begin{lstlisting}[style=nb]
-ells_gen, spectra_gen = flat_sky_tt_spectrum(generated_sp, reso_arcmin=RESO_ARCMIN)
-\end{lstlisting}
-returns $(\ell_b)_{b=0}^{N_{\rm bin}-1}$ and $\{TT:\hat P_b\}$. Below we
-walk through the function body, equation by equation. Throughout this
-subsection $T_i$ denotes the (possibly smoothed) input patch
-\texttt{T\_patches[i]} of shape $(H,W)=(64,64)$ and $B=N$ is the number of
-patches.
-
-\paragraph{(6a) Pixel geometry.} The pixel scale is converted to radians,
-\begin{equation}
-  \Delta x \;=\; \texttt{reso\_rad}
-  \;=\; \frac{\pi}{180}\cdot\frac{\texttt{reso\_arcmin}}{60},
-\end{equation}
-which for \texttt{RESO\_ARCMIN}=6.7 gives $\Delta x \approx 1.949\times
-10^{-3}\,\mathrm{rad}$. The patch side length in radians is $L=W\,\Delta x
-\approx 7.46^\circ$, so the patches are small enough for the flat-sky
-approximation (Sec.~\ref{sec:flatsky}).
-\begin{lstlisting}[style=nb]
-reso_rad = np.deg2rad(reso_arcmin / 60.0)
-\end{lstlisting}
-
-\paragraph{(6b) Fourier grid.} \texttt{np.fft.fftfreq(N,d=$\Delta x$)} returns
-the cycles-per-radian grid
-\begin{equation}
-  k_m \;=\; \begin{cases}
-    \dfrac{m}{N\,\Delta x}, & 0 \le m \le \lfloor N/2\rfloor,\\[0.3em]
-    \dfrac{m-N}{N\,\Delta x}, & \lfloor N/2\rfloor < m < N,
-  \end{cases}
-  \qquad m=0,\ldots,N-1,
-\end{equation}
-i.e.\ frequencies measured in inverse radians (not angular frequencies). The
-multipole assigned to each Fourier pixel is then $\ell(\bm k) = 2\pi|\bm k|$
-(this is the standard flat-sky correspondence; the factor of $2\pi$ converts
-from cycles/radian to radians$^{-1}$):
-\begin{equation}
-  k_x[m] \;=\; \texttt{fftfreq}(W,\Delta x)[m],\quad
-  k_y[n] \;=\; \texttt{fftfreq}(H,\Delta x)[n],\quad
-  \ell(\bm k) \;=\; 2\pi\sqrt{k_x^2+k_y^2}.
-  \label{eq:ell_map}
-\end{equation}
-\begin{lstlisting}[style=nb]
-kx = np.fft.fftfreq(W, d=reso_rad)
-ky = np.fft.fftfreq(H, d=reso_rad)
-KX, KY  = np.meshgrid(kx, ky)
-K_mag   = np.sqrt(KX**2 + KY**2)
-ell_map = 2 * np.pi * K_mag
-\end{lstlisting}
-The largest multipole on the grid is $\ell_{\max} = 2\pi\sqrt{2}/(2\Delta x)
-= \pi\sqrt{2}/\Delta x$ (corner of the FFT grid) and the patch fundamental is
-$\ell_{\rm fund} = 2\pi/L = 2\pi/(W\Delta x)$.
-
-\paragraph{(6c) Linear bandpower partition.} The multipole axis is divided
-into
-\begin{equation}
-  N_{\rm bin} \;=\; \min(H/2,\,30)
-\end{equation}
-linear bins of equal width $\Delta\ell=\ell_{\max}/N_{\rm bin}$:
-\begin{equation}
-  \ell_b^L = b\,\Delta\ell,\quad
-  \ell_b^R = (b{+}1)\,\Delta\ell,\quad
-  \ell_b   = \tfrac12(\ell_b^L+\ell_b^R),\quad
-  b=0,\ldots,N_{\rm bin}-1.
-  \label{eq:linear_bins_estim}
-\end{equation}
-\begin{lstlisting}[style=nb]
-ell_max     = ell_map.max()
-num_bins    = min(H // 2, 30)
-bin_edges   = np.linspace(0, ell_max, num_bins + 1)
-ell_centres = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-\end{lstlisting}
-The mode counts $N^{(b)}_{\rm modes}$ implied by this binning are given by
-Eq.~(\ref{eq:n_modes_per_bin}) of the main text.
-
-\paragraph{(6d) Discrete periodogram with continuum normalisation.} For
-patch $i$, the function computes the unitary 2D DFT
-\begin{equation}
-  \widetilde T_i[\bm k] \;=\; \sum_{\bm x} T_i(\bm x)\,
-   \exp\!\bigl(-2\pi i\,(k_x m + k_y n)\,\Delta x\bigr),
-\end{equation}
-where $\bm x=(m,n)\,\Delta x$, and then forms the patch periodogram with the
-DFT--continuum bridge factor
-\begin{equation}
-  P^{(i)}(\bm k) \;=\; |\widetilde T_i[\bm k]|^2\,\cdot\,
-  \underbrace{\frac{(\Delta x)^2}{HW}}_{\equiv\;\text{norm}}.
-  \label{eq:periodogram_norm}
-\end{equation}
-\begin{lstlisting}[style=nb]
-norm = reso_rad**2 / (H * W)              # = (Delta x)^2 / (H W)
-T_fft = np.fft.fft2(T_patches[i])
-P_TT  = np.abs(T_fft) ** 2 * norm
-\end{lstlisting}
-The factor $(\Delta x)^2/(HW)$ is the standard normalisation that makes
-$P^{(i)}(\bm k)$ a consistent estimator of the continuum patch power on the
-central band of the FFT grid:\footnote{With NumPy's
-non-unitary DFT, Parseval reads $\sum_{\bm k}|\widetilde T[\bm k]|^2 = HW
-\sum_{\bm x}|T(\bm x)|^2$. The pixel-domain variance is then
-$\sigma_T^2 = (\Delta x)^2\sum_{\bm x}|T|^2/L^2 = \sum_{\bm k}P^{(i)}(\bm k)
-/[(2\pi)^2(\Delta k)^{-2}]\cdot(2\pi)^2$ -- i.e.\ the standard
-$\sigma_T^2 = \int P(\bm k)\,d^2k/(2\pi)^2$ Parseval identity in the
-$2\pi|\bm k|\!=\!\ell$ convention used here.} the per-patch population power
-satisfies
-$\langle P^{(i)}(\bm k)\rangle \;\to\; C^{TT}_{\ell(\bm k)}$ as $H,W\to\infty$
-at fixed $L=W\Delta x$, in the same convention as the binned estimator of
-Eq.~(\ref{eq:flatsky_tt_estimator}).
-
-\paragraph{(6e) Radial annular average.} For each bin $b$, the function takes
-the unweighted mean of the periodogram over Fourier pixels falling in
-$\mathcal B_b = [\ell_b^L,\ell_b^R)$:
-\begin{equation}
-  \bar P_b^{(i)}
-  \;\equiv\; \frac{1}{N^{(b)}_{\rm modes}}
-            \sum_{\bm k:\ell(\bm k)\in\mathcal B_b} P^{(i)}(\bm k),
-  \qquad
-  N^{(b)}_{\rm modes} \;=\; \#\{\bm k:\ell(\bm k)\in\mathcal B_b\}.
-  \label{eq:per_patch_bin_mean}
-\end{equation}
-\begin{lstlisting}[style=nb]
-for b in range(num_bins):
-    mask = (ell_map >= bin_edges[b]) & (ell_map < bin_edges[b + 1])
-    if mask.any():
-        accum_TT[b] += P_TT[mask].mean()        # = bar{P}_b^{(i)}
-        if i == 0:
-            counts[b] += 1
-\end{lstlisting}
-The auxiliary array \texttt{counts} records, at $i=0$, whether bin $b$
-contains at least one Fourier pixel; bins with $N^{(b)}_{\rm modes}=0$ are
-flagged as invalid and returned as \texttt{NaN}.
-
-\paragraph{(6f) Batch average.} After the loop over patches, the function
-divides by $N=B$,
-\begin{equation}
-  \hat P_b \;=\; \frac{1}{B}\sum_{i=1}^{B}\bar P_b^{(i)}
-  \;=\; \frac{1}{B}\sum_{i=1}^{B}\frac{1}{N^{(b)}_{\rm modes}}
-        \sum_{\bm k:\ell(\bm k)\in\mathcal B_b}
-        |\widetilde T_i[\bm k]|^2\,\frac{(\Delta x)^2}{HW}.
-  \label{eq:final_bandpower}
-\end{equation}
-\begin{lstlisting}[style=nb]
-valid         = counts > 0
-arr_TT        = np.full(num_bins, np.nan)
-arr_TT[valid] = accum_TT[valid] / max(N, 1)     # divide by B
-return ell_centres, {'TT': arr_TT}
-\end{lstlisting}
-Equation~(\ref{eq:final_bandpower}) is the same estimator as
-Eq.~(\ref{eq:flatsky_tt_estimator}) of the main text, written in the order
-``radial mean first, batch mean second'' rather than ``batch mean first,
-radial mean second''. The two orderings are algebraically identical because
-each Fourier pixel carries equal weight in each bin and each patch carries
-equal weight in the batch.
-
-\paragraph{Return value.} The tuple
-$(\texttt{ells\_gen},\texttt{spectra\_gen})=
-((\ell_b)_b,\;\{TT:(\hat P_b)_b\})$ is a discrete sampling of the binned
-isotropic patch power spectrum. It is what the downstream plotting code
-consumes.
-
-\subsection{\texorpdfstring{Step 7 -- From $\hat P_b$ to $\hat D_b^{TT}$}{Step 7 -- From P\_b to D\_b\^{}TT}}
-\label{sec:vf_step_dell}
-
-The CMB-style display variable is
-\begin{equation}
-  \hat D_b^{TT} \;=\; \frac{\ell_b(\ell_b+1)}{2\pi}\,\hat P_b,
-  \label{eq:patch_dell_estim}
-\end{equation}
-multiplied element-wise at the bin centres of
-Eq.~(\ref{eq:linear_bins_estim}). In the notebook this is literally
-\begin{lstlisting}[style=nb]
-dl_fac_ref = ells_ref * (ells_ref + 1) / (2 * np.pi)
-dl_fac_gen = ells_gen * (ells_gen + 1) / (2 * np.pi)
-ref_vals   = dl_fac_ref * spectra_ref['TT']
-gen_vals   = dl_fac_gen * spectra_gen['TT']
-ax.plot(ells_ref, ref_vals, 'k-',  label=reference_label)
-ax.plot(ells_gen, gen_vals, 'C0--', label='generated')
-ax.set_xlabel(r'$\ell$'); ax.set_ylabel(r'$D_\ell^{TT}$'); ax.set_xscale('log')
-\end{lstlisting}
-The same construction is applied to the optional Monte‑Carlo theory band
-$\hat P_b^{\rm th}$,
-\begin{equation}
-  \hat D_b^{TT,\,\rm th} \;=\; \frac{\ell_b(\ell_b+1)}{2\pi}\,\hat P_b^{\rm th},
-\end{equation}
-and overlaid as the dotted grey curve in the comparison figure
-(Fig.~\ref{fig:dl_panel_phys}).
-
-\subsection{End-to-end summary}
-\label{sec:vf_summary}
-
-Combining Eqs.~(\ref{eq:init_noise})--(\ref{eq:patch_dell_estim}), the
-quantity actually plotted on the vertical axis of the $D_\ell^{TT}$ figure is
-\begin{equation}
-\boxed{
-  \hat D_b^{TT}
-  \;=\; \frac{\ell_b(\ell_b+1)}{2\pi}\;
-        \frac{1}{B}\sum_{i=1}^{B}\frac{1}{N^{(b)}_{\rm modes}}
-        \!\!\!\sum_{\bm k:\ell(\bm k)\in\mathcal B_b}\!\!\!
-        \Bigl|\mathcal F\bigl[\mu + \sigma\,
-              R\!\bigl(\Phi_{t_{\min}\to t_{\max}}^{u^\theta}(\xvec_0^{(i)}),\,
-                       t_{\max}\bigr)\bigr](\bm k)\Bigr|^2\,
-        \frac{(\Delta x)^2}{HW},
-}
-  \label{eq:end_to_end}
-\end{equation}
-where
-\begin{itemize}[leftmargin=2.0em,itemsep=0.15em]
-  \item $\xvec_0^{(i)}\sim\mathcal N(0,I_{64\times 64})$ is the $i$-th
-    initial-noise patch (step 1, Eq.~\ref{eq:init_noise});
-  \item $\Phi_{t_{\min}\to t_{\max}}^{u^\theta}$ is the Heun flow map of the
-    learned vector field $u^\theta$, integrating
-    Eq.~(\ref{eq:flow_ode}) from $t_{\min}$ to $t_{\max}$ on the grid of
-    Eq.~(\ref{eq:time_grid}), with optional state clipping
-    (Eq.~\ref{eq:state_clip});
-  \item $R(\xvec_t,t)=\xvec_t-t\,u^\theta(\xvec_t,t)$ is the linear-schedule
-    endpoint reconstruction of Eq.~(\ref{eq:x0_from_vf_linear});
-  \item $\mu+\sigma\,\cdot$ is the per-channel de-standardisation of
-    Eq.~(\ref{eq:denorm}), present only in physical-units mode;
-  \item $\mathcal F$ is the 2D DFT \texttt{np.fft.fft2}, with the multipole
-    grid of Eq.~(\ref{eq:ell_map});
-  \item the inner double sum is the linearly-binned isotropic estimator of
-    Eq.~(\ref{eq:final_bandpower}), i.e.\ the return value of
-    \texttt{flat\_sky\_tt\_spectrum};
-  \item the prefactor $\ell_b(\ell_b+1)/(2\pi)$ converts the patch power
-    $\hat P_b$ to the CMB-style $\hat D_b^{TT}$ of
-    Eq.~(\ref{eq:patch_dell_estim}).
-\end{itemize}
-The optional pixel-domain Gaussian smoothing of Eq.~(\ref{eq:smooth_kernel})
-multiplies the integrand of the inner sum by
-$\exp[-\sigma_{\rm pix}^2(\Delta x)^2|\bm k|^2]$ (cf.\ the smoothed
-bandpower of Eq.~\ref{eq:smoothed_bandpower}).
-
-The reference curve $\hat D_b^{\rm ref}$ in the same figure is obtained by
-applying steps~4--7 to the validation patches $\{T_i^{\rm ref}\}$, with
-steps~1--3 (the neural sampling) replaced by a direct draw from the saved
-$p(f)$ prior. Because both branches share the identical de-standardisation,
-smoothing, FFT, and binning, any disagreement between $\hat D_b^{\rm gen}$
-and $\hat D_b^{\rm ref}$ is attributable to the trained vector field
-$u^\theta$ -- which is the point of the diagnostic.
-
-% \end{document}    % uncomment if compiling standalone
-
-
-
-
-\paragraph{Inputs.}
-At each diagnostic step, with EMA weights $\bar\thetavec_n$ active, we
-generate $N_{\rm s}=32$ patches $\{\hat\zvec_i\}_{i=1}^{N_{\rm s}}$ by Heun
-integration of the deterministic flow ODE plus the linear posterior-mean
-endpoint reconstruction. The reference is a fixed held-out validation
-batch $\{\zvec_j\}_{j=1}^{N_{\rm ref}}$. Both ensembles are passed
-through the same Gaussian pixel smoothing kernel $\sigma_{\rm pix}$
-before any spectrum is taken.
-
-\paragraph{Bandpower estimates and band selection.}
-We denote by $\hat D_b^{\rm gen}(\bar\thetavec_n)$ and
-$\hat D_b^{\rm ref}$ the binned flat-sky $TT$ bandpowers
-\begin{equation}
-  \hat D_b
-  \;=\;
-  \frac{\ell_b(\ell_b+1)}{2\pi}\,\hat P_b,
-\end{equation}
-returned by \texttt{flat\_sky\_tt\_spectrum} on the generated and
-reference ensembles, restricted to multipoles $\ell\le\ell_{\max}=1200$.
-Define the bin index set
-\begin{equation}
-  \mathcal M
-  \;=\;
-  \bigl\{\,b\,:\,
-       \hat D_b^{\rm gen},\hat D_b^{\rm ref}\text{ finite and }>0
-  \bigr\},
-\end{equation}
-which excludes bandpowers below the floor of the estimator (typically
-the $\ell$-bin containing the patch fundamental).
-
-\paragraph{Bandpower-shape term.}
-The first summand is the root-mean-square \emph{log-relative}
-discrepancy across $\mathcal M$,
-\begin{equation}
-  \boxed{\;
-  \mathcal S_{\rm shape}(\bar\thetavec_n)
-  \;=\;
-  \sqrt{
-    \frac{1}{|\mathcal M|}
-    \sum_{b\in\mathcal M}
-      \bigl[\,\log\hat D_b^{\rm gen}(\bar\thetavec_n)
-            -\log\hat D_b^{\rm ref}\,\bigr]^2
-  }
-  \;}
-  \label{eq:S_shape_def}
-\end{equation}
-i.e.\ $\mathcal S_{\rm shape}=\sqrt{\,\overline{\mathrm{MSE}_{\log D}}\,}$.
-This is the quantity stored as
-\texttt{spectral\_shape\_log\_rmse} in
-\texttt{run\_spectral\_diagnostics}, and is a band-by-band measure of
-relative shape mismatch in $D_\ell^{TT}$.
-
-\paragraph{Pixel-variance term.}
-The second summand pins the integrated patch-level variance,
-\begin{equation}
-  \boxed{\;
-  \mathcal S_{\rm var}(\bar\thetavec_n)
-  \;=\;
-  \sqrt{
-    \frac{1}{C}
-    \sum_{c=1}^{C}
-      \bigl[\,\log\sigma_c^{\rm gen}(\bar\thetavec_n)
-            -\log\sigma_c^{\rm ref}\,\bigr]^2
-  }
-  \;}
-  \label{eq:S_var_def}
-\end{equation}
-where $\sigma_c^{\rm gen},\sigma_c^{\rm ref}$ are the per-channel
-pixel-level standard deviations on the generated and reference
-ensembles (here $C=1$). This is the \texttt{spectral\_std\_log\_l2}
-field in the diagnostic.
-
-\paragraph{Combined score.}
-The scalar used for checkpoint selection is the unweighted sum of the
-two terms,
-\begin{equation}
-  \boxed{\;
-  \mathcal S(\bar\thetavec_n)
-  \;=\;
-  \mathcal S_{\rm shape}(\bar\thetavec_n)
-  \;+\;
-  \mathcal S_{\rm var}(\bar\thetavec_n).
-  \;}
-  \label{eq:S_total_def}
-\end{equation}
-Both summands are dimensionless L$^2$ norms in log-space and so are
-roughly comparable in magnitude after $D_\ell^{TT}$ is restricted to
-$\ell\le\ell_{\max}$. The minimum of $\mathcal S$ across the run is
-recorded as $\mathcal S^\star$ together with the corresponding EMA
-snapshot $\bar\thetavec^\star$, which is the checkpoint returned at
-inference time.
 
 
 
