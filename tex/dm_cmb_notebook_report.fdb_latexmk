@@ -1,8 +1,7 @@
 # Fdb version 4
-["pdflatex"] 1781147729.70504 "/Users/davideprovasoli/Desktop/Diffusion Models/tex/dm_cmb_notebook_report.tex" "dm_cmb_notebook_report.pdf" "dm_cmb_notebook_report" 1781147732.91664 0
+["pdflatex"] 1781479478.7942 "dm_cmb_notebook_report.tex" "dm_cmb_notebook_report.pdf" "dm_cmb_notebook_report" 1781479480.43414 0
   "../plots/spectral_comparison6.png" 1778503935.93732 143253 c9cafaa3556b2363e4557b0d37d99fe9 ""
   "../plots/spectral_comparison7.png" 1780007981.2917 169365 03c64dde6d6309cbeab3d5fbfd45720d ""
-  "/Users/davideprovasoli/Desktop/Diffusion Models/tex/dm_cmb_notebook_report.tex" 1781147725.72579 179852 bbd648b74f103e64826af89ec3254263 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc" 1136849721 2900 1537cc8184ad1792082cd229ecc269f4 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/jknappen/ec/tcrm1095.tfm" 1136768653 1536 02c06700a42be0f5a28664c7273f82e7 ""
@@ -156,10 +155,10 @@
   "/usr/local/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1778675906 5573038 b99aad5e4898a9034e953632f940512b ""
   "/usr/local/texlive/2026/texmf-var/web2c/pdftex/pdflatex.fmt" 1774209607 3636776 dc5fa9b6b1453b9d196cd42edf876004 ""
   "/usr/local/texlive/2026/texmf.cnf" 1774209515 577 648cd9f92f9c0eac486f4c71c85cfbbe ""
-  "dm_cmb_notebook_report.aux" 1781147732.37598 35706 acf5255d34e40722f6edafe08c811828 "pdflatex"
-  "dm_cmb_notebook_report.out" 1781147732.38428 16187 38999903ff6470814c0dff9014621b4c "pdflatex"
-  "dm_cmb_notebook_report.tex" 1781147725.72579 179852 bbd648b74f103e64826af89ec3254263 ""
-  "dm_cmb_notebook_report.toc" 1781147732.38528 10541 0e7cd6354985458f15b8fdf92b6e7551 "pdflatex"
+  "dm_cmb_notebook_report.aux" 1781479480.26954 37526 46ef6e5abb321c5d33f3a28f2938bbc7 "pdflatex"
+  "dm_cmb_notebook_report.out" 1781479480.27207 17675 f8471a195a1aab05f26c0a4056bd47b5 "pdflatex"
+  "dm_cmb_notebook_report.tex" 1781479470.97357 188240 6c4c37a5fe2d1885420aaee9e391448d ""
+  "dm_cmb_notebook_report.toc" 1781479480.27231 11308 ce281980c98f8dbd2adb026496e9502d "pdflatex"
   (generated)
   "dm_cmb_notebook_report.aux"
   "dm_cmb_notebook_report.log"

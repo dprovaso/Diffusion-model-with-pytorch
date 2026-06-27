@@ -875,7 +875,7 @@ Equations~(\ref{eq:cond_vf})--(\ref{eq:cond_score}) collectively imply that, for
 \subsection{Network architecture}
 \label{sec:fm_arch}
 
-The unknown marginal velocity field $u_t:\Ndata\!\times\![0,1]\to\Ndata$ is parametrised by a deep neural network $\uvec_t^{\thetavec}$ with parameters $\thetavec$. The architecture is a translation-equivariant U-Net \cite{ronneberger2015unet,ho2020ddpm}, adapted to the three-channel $(T,Q,U)$ patch geometry by an explicit $\mathrm{SO}(2)$-aware data augmentation (Sec.~\ref{sec:fm_train}) and by a Karras-style \cite{karras2022elucidating} time-embedding pathway. The model is unconditional in the sense that the only side information presented to the network is the time variable $t\in[0,1]$. Inputs and outputs share the shape $(B,3,64,64)$, where $B$ is the mini-batch size and the three channels are the standardised Stokes parameters of Sec.~\ref{sec:data_savedpriors}.
+The unknown marginal velocity field $u_t:\Ndata\!\times\![0,1]\to\Ndata$ is parametrised by a deep neural network $\uvec_t^{\thetavec}$ with parameters $\thetavec$. The architecture is a translation-equivariant U-Net \cite{ronneberger2015unet,ho2020ddpm}, adapted to single-channel temperature patches by $\mathrm{D}_4$ data augmentation (Sec.~\ref{sec:fm_train}) and by a Karras-style \cite{karras2022elucidating} time-embedding pathway. The model is unconditional in the sense that the only side information presented to the network is the time variable $t\in[0,1]$. Inputs and outputs share the shape $(B,1,64,64)$, where $B$ is the mini-batch size and the lone channel is the standardised $T$ patch of Sec.~\ref{sec:data_savedpriors}. The upstream simulation pipeline still produces full $(T,Q,U)$ maps; the present $p(f)$ run trains and validates on the temperature sub-problem only.
 
 \subsubsection{Why a U-Net for CMB patches}
 
@@ -883,18 +883,18 @@ The choice of a convolutional U-Net is motivated by three structural properties 
 \begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
   \item \emph{Approximate translation invariance.} On flat patches of angular extent $L\sim 7^\circ$, the gnomonic projection error is $\mathcal O((L/\mathrm{rad})^2)\sim 10^{-2}$ (Sec.~\ref{sec:flatsky}), so the patch statistics inherit the translation invariance of the underlying spherically-isotropic field to better than one percent. Convolutional architectures realise this symmetry exactly.
   \item \emph{Multi-scale structure of the power spectrum.} The patch power spectrum spans approximately four decades between the largest patch mode and the patch Nyquist multipole, with several physical features (acoustic peaks in $TT$, the polarisation peak structure in $EE$, the lensing-induced $BB$ tail) at well-separated angular scales. The pyramidal encoder--decoder topology of a U-Net with skip connections is natively well-suited to producing a velocity field that simultaneously captures all of these scales.
-  \item \emph{Rotational/reflection equivariance up to spin.} The flat-sky polarisation field is exactly $\mathrm{D}_4$-equivariant up to the spin-2 sign rule for $(Q,U)$ (a $90^\circ$ rotation flips both signs; an axis reflection flips one). This is exploited at the data-augmentation level rather than baked into the layers (Sec.~\ref{sec:fm_train}), but the U-Net's translation-equivariant convolutions make this augmentation effective in practice.
+  \item \emph{Rotational/reflection equivariance.} On the small gnomonic patches used here, the scalar temperature field is approximately $\mathrm{D}_4$-equivariant: random rotations and reflections are valid symmetry augmentations with no spin bookkeeping. This is applied at the data-augmentation level (Sec.~\ref{sec:fm_train}) rather than baked into the layers.
 \end{enumerate}
 
 \subsubsection{Macro-structure}
 
 The U-Net has a five-stage encoder--bottleneck--decoder layout with channel schedule $C=(32,64,128,256)$ and two residual layers per stage:
 \begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
-  \item A \emph{stem} that lifts the three-channel input patch to $C_0=32$ feature channels via a single $3\!\times\!3$ convolution.
+  \item A \emph{stem} that lifts the single-channel input patch to $C_0=32$ feature channels via a single $3\!\times\!3$ convolution.
   \item An \emph{encoder} of three downsampling stages: at stage $\ell$ the feature map is processed by two residual layers at width $C_\ell$ and then halved in spatial extent by a strided $3\!\times\!3$ convolution that simultaneously projects to width $C_{\ell+1}$. The bottleneck feature map is $(B,256,8,8)$.
   \item A \emph{midcoder} of two residual layers at the bottleneck width $C_3=256$, which globally mixes the $64$ bottleneck pixels.
   \item A \emph{decoder} that mirrors the encoder: at each stage the bottleneck output is added to the corresponding encoder skip (additive skips, not concatenations), upsampled by a factor of two by bilinear interpolation, and refined by two residual layers at the next-lower width.
-  \item An \emph{output head} that projects the final $C_0$-channel feature map back to a three-channel output, producing the predicted velocity field $\uvec_t^{\thetavec}(\xvec)$.
+  \item An \emph{output head} that projects the final $C_0$-channel feature map back to a single-channel output, producing the predicted velocity field $\uvec_t^{\thetavec}(\xvec)$.
 \end{enumerate}
 
 \subsubsection{Time conditioning}
@@ -916,28 +916,24 @@ with GroupNorm \cite{wu2018groupnorm} to avoid batch-statistic instabilities and
 
 With the channel schedule $C=(32,64,128,256)$ and two residual layers per stage, the network has $\sim 3.5$\,MiB of float-32 parameters. The patch resolution is moderate ($64\!\times\!64$), the model is unconditional, and the per-step compute is dominated by the convolutional backbone rather than the time-conditioning MLP, so training easily fits in $\!\lesssim\!4$\,GB of GPU memory at the production batch size $B=250$ used below.
 
-\subsection{Training: loss function, optimisation, and the role of each term}
+\subsection{Training: pure CFM loss and optimisation}
 \label{sec:fm_train}
 
 \subsubsection{Loss function}
 
-We train the network $\uvec_t^{\thetavec}$ as a direct vector-field predictor by minimising the conditional flow-matching loss of Eq.~(\ref{eq:cfm}) augmented with two physics-aware auxiliary regularisers. The composite training objective is
+The production $p(f)$ run uses \emph{pure} conditional flow matching: the network $\uvec_t^{\thetavec}$ is trained as a direct vector-field predictor by minimising only the CFM mean-squared error of Eq.~(\ref{eq:cfm}). No auxiliary regularisers enter the objective. At each minibatch step we draw a Monte-Carlo sample $(\zvec,\e,t)$ with $\zvec\sim\pdata$ (a clean $T$ patch from the training split), $\e\sim\mathcal N(0,I_D)$, and $t$ sampled on $[t_{\min},t_{\max}]$ as described below; we then form the linear-path state $\xvec_t=\alpha_t\zvec+\beta_t\e$ and regress the predicted velocity against the closed-form conditional target $\dot\alpha_t\zvec+\dot\beta_t\e$. The training objective is
 \begin{equation}
   \boxed{\;
   \mathcal L(\thetavec)
   \;=\;
   \mathcal L_{\rm CFM}(\thetavec)
-  \;+\;
-  \lambda_{x_0}\,\mathcal L_{x_0}(\thetavec)
-  \;+\;
-  \lambda_{\rm rad}\,\mathcal L_{\rm rad}(\thetavec).
+  \;=\;
+  \EE_{t,\zvec,\e}\Bigl[\,\bigl\|\uvec_t^{\thetavec}(\xvec_t)
+                  - (\dot\alpha_t\zvec+\dot\beta_t\e)\bigr\|^2_2\,\Bigr].
   \;}
   \label{eq:total_loss}
 \end{equation}
-All three terms are computed from a single Monte-Carlo sample of the triplet $(\zvec,\e,t)$ at every minibatch step, with $\zvec\sim\pdata$ (a clean patch from the training split), $\e\sim\mathcal N(0,I_D)$, $t\sim\mathcal U[0,t_{\max}]$ ($t_{\max}=0.995$, see below), and $\xvec_t = t\zvec+(1-t)\e$. Each term is a different projection of the same underlying regression problem and addresses a different failure mode of an unregularised flow-matching estimator on patch-level CMB data.
-
-\paragraph{(i) Conditional flow-matching loss.}
-For the linear schedule, the closed-form target of Eq.~(\ref{eq:linear_target}) reduces the conditional regression to
+For the linear schedule of Eq.~(\ref{eq:linear_schedule}) this reduces to the equivalent form
 \begin{equation}
   \mathcal L_{\rm CFM}(\thetavec)
   \;=\;
@@ -945,10 +941,10 @@ For the linear schedule, the closed-form target of Eq.~(\ref{eq:linear_target}) 
                   - (\zvec-\e)\bigr\|^2_2\,\Bigr].
   \label{eq:cfm_linear}
 \end{equation}
-By Proposition~\ref{prop:fm_equiv} this is the canonical, simulation-free flow-matching objective: minimising it makes $\uvec_t^{\thetavec}(\xvec)$ converge to the marginal velocity $u_t(\xvec)$ of the path, which by Eq.~(\ref{eq:flow_ode}) drives the deterministic ODE that we subsequently integrate at sampling time. \emph{It is the only term strictly required for consistency of the generative model;} the next two terms are auxiliary regularisers that bias the optimisation towards solutions that better respect the second-order patch-level statistics that we ultimately care about.
+By Proposition~\ref{prop:fm_equiv} this is the canonical, simulation-free flow-matching objective: minimising it makes $\uvec_t^{\thetavec}(\xvec)$ converge to the marginal velocity $u_t(\xvec)$ of the path, which by Eq.~(\ref{eq:flow_ode}) drives the deterministic ODE integrated at sampling time. The implementation in \texttt{FlowMatchingTrainer.get\_train\_loss} (cell~53) is exactly this single regression step.
 
-\paragraph{(ii) Posterior-mean (``$x_0$'') anchor.}
-Tweedie's identity for the Gaussian conditional path implies that the closed-form data-posterior mean reads
+\paragraph{Relation to earlier, over-regularised runs.}
+Earlier notebook iterations augmented Eq.~(\ref{eq:cfm_linear}) with an endpoint-reconstruction (``$x_0$'') anchor and a log-power radial Fourier penalty on patch spectra. Those terms are no longer used: they were found to overpin low-$\ell$ amplitude well before the CFM optimum was reached, after which the validation spectral score drifted upward even as the training loss kept falling. The present pure-CFM setup instead relies on EMA evaluation plus best-validation-spectral checkpointing (Sec.~\ref{sec:fm_ema_and_best}) to select a snapshot whose generated $D_\ell^{TT}$ matches the held-out reference. For diagnostics and sampling we still map a noisy state $(\xvec_t,t)$ to a clean-patch estimate via the linear posterior-mean projector
 \begin{equation}
   \hat\zvec_{\thetavec}(\xvec_t,t)
   \;=\;
@@ -956,51 +952,33 @@ Tweedie's identity for the Gaussian conditional path implies that the closed-for
        {\alpha_t\dot\beta_t - \dot\alpha_t\,\beta_t},
   \label{eq:x0_recon}
 \end{equation}
-i.e.\ for any predicted velocity $\uvec_t^{\thetavec}$ there is a deterministic linear map that returns an estimate $\hat\zvec_{\thetavec}$ of the clean patch underlying $\xvec_t$. The \emph{posterior-mean anchor} is the regression of this estimate against the true clean patch:
-\begin{equation}
-  \mathcal L_{x_0}(\thetavec) \;=\; \EE_{t,\zvec,\e}\!\bigl[\,\|\hat\zvec_{\thetavec}(\xvec_t,t) - \zvec\|^2_2\,\bigr].
-  \label{eq:x0_loss}
-\end{equation}
-Two remarks. First, $\mathcal L_{x_0}$ is mathematically redundant with $\mathcal L_{\rm CFM}$ at the global optimum -- both attain their minima exactly when $\uvec_t^{\thetavec}=u_t$ -- but they have different finite-sample variance profiles. Near $t\to 1$ the linear map of Eq.~(\ref{eq:x0_recon}) becomes nearly singular (the denominator scales as $1-t$ for the linear schedule), so $\mathcal L_{x_0}$ is dominated by mistakes made by the network at the data end of the path, where $\mathcal L_{\rm CFM}$ alone is comparatively insensitive. Second, since $\hat\zvec_{\thetavec}$ is a linear function of $\uvec_t^{\thetavec}$ with $t$-dependent coefficients, $\mathcal L_{x_0}$ is, at fixed schedule, exactly equivalent to $\mathcal L_{\rm CFM}$ with a $t$-dependent reweighting that increases towards $t=1$. The current production run ablates this term ($\lambda_{x_0}=0$): together with the EMA + best-validation-spectral checkpointing protocol of Sec.~\ref{sec:fm_ema_and_best}, the CFM term alone owns the spectral target with no optimisation-drift artefact, and adding the anchor at non-zero weight was found to reach a worse final spectrum at fixed compute.
-
-\paragraph{(iii) Radial Fourier-power regulariser.}
-The third term is the central physics-aware regulariser of this work. Let $\mathcal F$ denote the unitary 2D discrete Fourier transform on the $64\!\times\!64$ patch grid; given a batch of $B$ network reconstructions $\{\hat\zvec_{\thetavec,i}\}$ of clean patches, define the per-mode batch-averaged power
-\begin{equation}
-  P_{\thetavec}(\bm k) = \frac{1}{B}\sum_{i=1}^B \bigl|\mathcal F[\hat\zvec_{\thetavec,i}]\bigr|^2(\bm k),
-  \qquad
-  P_{\rm data}(\bm k) = \frac{1}{B}\sum_{i=1}^B \bigl|\mathcal F[\zvec_i]\bigr|^2(\bm k),
-\end{equation}
-and the loss
-\begin{equation}
-  \mathcal L_{\rm rad}(\thetavec)
-  \;=\;
-  \frac{1}{|\mathcal K|}\sum_{\bm k\in\mathcal K}
-    \bigl[\,\log P_{\thetavec}(\bm k) - \log P_{\rm data}(\bm k)\,\bigr]^2,
-  \label{eq:radial_loss}
-\end{equation}
-where $\mathcal K$ runs over all FFT bins and all three Stokes channels. Three properties make Eq.~(\ref{eq:radial_loss}) a useful auxiliary objective.
-\begin{enumerate}[leftmargin=2.0em,itemsep=0.15em]
-  \item \emph{Differentiability.} $\mathcal L_{\rm rad}$ is fully differentiable through the FFT and through the linear $x_0$-recovery of Eq.~(\ref{eq:x0_recon}), so it propagates gradients into $\thetavec$ at no additional simulation cost.
-  \item \emph{Logarithmic dynamic range matching.} Patch power spectra span approximately four decades between the largest patch mode and the patch Nyquist multipole. A linear MSE on $P(\bm k)$ would be entirely dominated by the few low-$\ell$ bins; the log-power form treats all scales symmetrically.
-  \item \emph{Alignment with the validation diagnostic.} The flat-sky $D_\ell$ comparison of Sec.~\ref{sec:fm_diagnostics} is a coarsely binned, radially averaged version of the same quantity. The training objective is therefore a finer-grained, per-bin surrogate for the validation metric, which avoids the standard adversary in score-based modelling where a low validation loss can coexist with a visibly biased generated power spectrum.
-\end{enumerate}
-The current production run ablates this term as well ($\lambda_{\rm rad}=0$). The two $1/(K+1)$-weighted log-power gradients (which we used in earlier runs) were found to overpin low-$K$ amplitude well before the CFM optimum was reached, walking the model into a basin in which $\hat D_\ell^{TT}$ overshoots the validation curve at low $\ell$ while the peak amplitude regresses towards lower values. With $\lambda_{x_0}=\lambda_{\rm rad}=0$ the validation spectral score (Sec.~\ref{sec:fm_ema_and_best}) decreases monotonically over the run and the best-spectral EMA checkpoint is taken as the final answer.
+but this map is \emph{not} included in the training loss.
 
 \subsubsection{Symmetry-aware data augmentation}
 
-The flat-sky polarisation field is $\mathrm{D}_4$-equivariant up to the spin-2 sign rule for $(Q,U)$: a $90^\circ$ rotation sends $(T,Q,U)\!\mapsto\!(T,-Q,-U)$ and a reflection across the $x$-axis sends $(T,Q,U)\!\mapsto\!(T,+Q,-U)$. At each training step we apply a uniformly drawn element of the dihedral group $\mathrm{D}_4$ to the clean batch $\{\zvec_i\}$ before constructing $\xvec_t$, with the corresponding spin-2 sign rule. This is exact at the angular scale of our patches (where curvature corrections to spherical isotropy are subdominant; Sec.~\ref{sec:flatsky}) and provides an exact $8\!\times$ multiplication of the effective training-set size at zero memory cost.
+Temperature is a scalar field on the patch. At each training step we apply a uniformly drawn element of the dihedral group $\mathrm{D}_4$---a random $k\!\times\!90^\circ$ rotation followed by an optional reflection across the vertical axis---to the clean batch $\{\zvec_i\}$ before constructing $\xvec_t$. No spin-2 sign bookkeeping is required. This is exact at the angular scale of our patches (where curvature corrections to spherical isotropy are subdominant; Sec.~\ref{sec:flatsky}) and provides an exact $8\!\times$ multiplication of the effective training-set size at zero memory cost.
 
 \subsubsection{Time-sampling distribution}
 
-We draw the diffusion time $t$ uniformly on $[0,t_{\max}]$ with $t_{\max}=0.995$. The upper truncation avoids the $1/(1-t)$ singularity in the conditional score and preserves a one-step margin from the boundary that matches the integration grid used at sampling time (Sec.~\ref{sec:fm_sample_pipeline}); training and sampling distributions therefore see exactly the same support of $t$. For the linear schedule, the conditional target Eq.~(\ref{eq:linear_target}) is $t$-independent and the marginal patch variance varies by less than a factor of two across the path, so uniform sampling is unbiased with respect to all multipoles in expectation -- there is no schedule-induced reason to depart from $\mathcal U[0,t_{\max}]$.
+Training and sampling share the interval $[t_{\min},t_{\max}]=[0,\,0.995]$. The upper truncation avoids the $1/(1-t)$ singularity in the conditional score and preserves a one-step margin from the boundary that matches the Heun integration grid of Sec.~\ref{sec:fm_sample_pipeline}. Rather than drawing $t$ uniformly, we use the power-law bias implemented in \texttt{\_sample\_train\_t}: draw $u\sim\mathcal U[0,1]$, set
+\begin{equation}
+  \tau \;=\;
+  \begin{cases}
+    u & \text{if the bias power is }1,\\[0.3em]
+    1-(1-u)^{p} & \text{otherwise,}
+  \end{cases}
+  \qquad
+  t \;=\; t_{\min} + (t_{\max}-t_{\min})\,\tau,
+\end{equation}
+with production bias power $p=0.4$ (\texttt{train\_t\_bias\_power=0.4}). Values $p<1$ slightly overweight low-$t$ regions of the path; $p=1$ recovers uniform sampling. Because the linear-path velocity target Eq.~(\ref{eq:linear_target}) is $t$-independent, any reasonable sampling density on $[t_{\min},t_{\max}]$ remains unbiased in expectation with respect to all multipoles; the mild $p=0.4$ choice is retained from the production checkpoint rather than being a strong inductive bias.
 
 \subsubsection{Optimiser}
 
-We optimise $\mathcal L(\thetavec)$ with AdamW~\cite{loshchilov2019adamw} at base learning rate $10^{-4}$ and weight decay $10^{-4}$, with the gradient norm clipped to unity before each update to suppress the rare large-step events that arise from outlier $\xvec_t$ samples near $t=t_{\max}$. The learning rate is held constant for the first $5{,}000$ epochs and then cosine-annealed~\cite{loshchilov2017sgdr} to $0.1\times$ the base value over the remaining $15{,}000$ epochs of the production run. The mini-batch size is $B=250$ and the production budget is $20{,}000$ epochs (Sec.~\ref{sec:fm_ema_and_best} explains why this large budget is paired with validation-spectral checkpointing rather than with early stopping).
+We optimise $\mathcal L(\thetavec)$ with AdamW~\cite{loshchilov2019adamw} at base learning rate $10^{-4}$ and weight decay $10^{-4}$, with the gradient norm clipped to unity before each update. The learning rate is held constant for the first $5{,}000$ epochs and then cosine-annealed~\cite{loshchilov2017sgdr} to $0.1\times$ the base value over the remaining epochs. The mini-batch size is $B=250$ and the production budget is $10{,}000$ epochs (Sec.~\ref{sec:fm_ema_and_best} explains why this budget is paired with validation-spectral checkpointing rather than with early stopping). Training is launched from cell~58 with \texttt{run\_spectral=True}, so the flat-sky $TT$ score of Sec.~\ref{sec:fm_spectral_score} is evaluated in-loop every $500$ epochs.
 
 \subsubsection{Hyperparameter summary}
 
-Table~\ref{tab:fm_hparams} reports the production hyperparameters used for the runs in this work.
+Table~\ref{tab:fm_hparams} reports the production hyperparameters for the $p(f)$ run documented here.
 
 \begin{table}[h]
   \centering
@@ -1008,26 +986,28 @@ Table~\ref{tab:fm_hparams} reports the production hyperparameters used for the r
     \toprule
     Hyperparameter & Value \\
     \midrule
+    Prior / channels & $p(f)$, single-channel $T$ only \\
     Schedule & Linear: $\alpha_t=t,\,\beta_t=1-t$ \\
-    $t$-sampling distribution & Uniform on $[0,\,t_{\max}]$, $t_{\max}=0.995$ \\
+    $t$-support & $[t_{\min},t_{\max}]=[0,\,0.995]$ \\
+    $t$-sampling bias power $p$ & $0.4$ \\
     Sampling regime & deterministic flow, $\sigma=0$ \\
-    CFM loss weight & $1.0$ \\
-    $x_0$-anchor weight $\lambda_{x_0}$ & $0.0$ (production); $0.10$ historical \\
-    Radial Fourier-power weight $\lambda_{\rm rad}$ & $0.0$ (production); $0.10$ historical \\
+    Training objective & pure CFM MSE, Eq.~(\ref{eq:total_loss}) \\
     Augmentation & $\mathrm{D}_4$ on $T$ patches \\
     Optimiser & AdamW, weight decay $10^{-4}$ \\
     Base learning rate & $10^{-4}$ \\
     Gradient clip & unit Frobenius norm \\
     Mini-batch size & $250$ \\
-    Number of epochs & $20{,}000$ \\
+    Number of epochs & $10{,}000$ \\
     LR schedule & constant for the first $5{,}000$ epochs, cosine-annealing to $0.1\times$ base afterwards \\
     EMA decay & $\rho=0.99$ \\
     EMA evaluation warmup & $300$ steps \\
+    In-training spectral diagnostic & $N_{\rm s}=32$ samples, $N_{\rm steps}=1600$ Heun substeps, every $500$ epochs \\
     Validation-spectral checkpointing & best-spectral EMA snapshot kept as final answer (Sec.~\ref{sec:fm_ema_and_best}) \\
     State clipping at sampling & $|\xvec|\!\leq\!5$ \\
+    Output checkpoint & \texttt{checkpoints/unet\_cmb\_t\_pure\_cfm\_linear\_heun\_ema\_10.pt} \\
     \bottomrule
   \end{tabular}
-  \caption{Production hyperparameters for the deterministic flow-matching prior of this work, trained on the standardised patch dataset $p(f)$. The same configuration is used for the foreground prior $p(x)$ except for the choice of training dataset.}
+  \caption{Production hyperparameters for the deterministic flow-matching $p(f)$ prior. The foreground prior $p(x)$ reuses the same \texttt{FlowMatchingTrainer} class and most of these settings; its training cell and objective are summarised separately in Sec.~\ref{sec:fg_training_config}.}
   \label{tab:fm_hparams}
 \end{table}
 
@@ -1045,7 +1025,7 @@ At each optimiser step $n$ we maintain a shadow copy $\bar\thetavec_n\in\mathbb 
   \bar\thetavec_{n+1} \;=\; \rho\,\bar\thetavec_n + (1-\rho)\,\thetavec_{n+1},\qquad \rho\in(0,1),
   \label{eq:ema_update}
 \end{equation}
-with $\rho=0.99$ in our runs (\texttt{ema\_decay=0.99} passed to \texttt{FlowMatchingTrainer}; cell 58). Unrolling \eqref{eq:ema_update} from the initial shadow $\bar\thetavec_0=\thetavec_0$ gives the equivalent geometric-weight representation
+with $\rho=0.99$ in our runs (\texttt{ema\_decay=0.99} passed to \texttt{FlowMatchingTrainer} in cell~58). Unrolling \eqref{eq:ema_update} from the initial shadow $\bar\thetavec_0=\thetavec_0$ gives the equivalent geometric-weight representation
 \begin{equation}
   \bar\thetavec_n \;=\; \rho^{\,n}\,\thetavec_0 + (1-\rho)\sum_{k=1}^{n}\rho^{\,n-k}\,\thetavec_k,
   \label{eq:ema_unroll}
@@ -1130,7 +1110,7 @@ spectral_selection_score = (
 A monotone decrease of $\mathcal S$ during training is what we want to see; in the over-regularised run that motivated the present pure-CFM ablation, $\mathcal S$ reached a global minimum near epoch $\sim 1000$ and then drifted back up monotonically to $\sim 2.5\times$ that value, as the auxiliary log-power loss continued to push gradient into low-$\ell$ once the CFM term had already saturated.
 
 \paragraph{Sampling configuration.}
-For the production runs we use $N_{\rm s}=32$ patches and $N_{\rm steps}=1600$ Heun substeps in the spectral diagnostic (the constructor arguments \texttt{spectral\_n\_samples=32, spectral\_n\_steps=1600} of cell 58). The smoothing scale $\sigma_{\rm pix}$ matches the kernel applied at the pre-comparison step in cell 53; in the $TT$ pipeline this is the same $\sigma_{\rm pix}=1.2$ pixels we use for the post-training $D_\ell^{TT}$ figure. The reference ensemble is the held-out validation split of the saved $p(f)$ patches.
+For the production $p(f)$ run we use $N_{\rm s}=32$ patches and $N_{\rm steps}=1600$ Heun substeps in the spectral diagnostic (the constructor arguments \texttt{spectral\_n\_samples=32, spectral\_n\_steps=1600} of cell~58). The smoothing scale $\sigma_{\rm pix}$ matches the kernel applied at the pre-comparison step in \texttt{run\_spectral\_diagnostics} (cell~53); in the $TT$ pipeline this is the same $\sigma_{\rm pix}=1.2$ pixels we use for the post-training $D_\ell^{TT}$ figure. The reference ensemble is the held-out validation split of the saved $p(f)$ patches.
 
 \subsubsection{Best-validation-spectral checkpointing}
 \label{sec:fm_best_spectral_protocol}
@@ -1157,10 +1137,10 @@ At the end of training, cell 58 writes a single file with both the last-epoch we
                                   \text{schedule \& sampler config},\,
                                   \text{training history}\bigr\},
 \end{equation}
-saved as \texttt{checkpoints/unet\_cmb\_t\_pure\_cfm\_linear\_heun\_ema.pt}. The downstream evaluation cell prefers $\bar\thetavec^\star$ over $\bar\thetavec_{\rm last}$ whenever it is present (cell 59 uses the key \texttt{best\_spectral\_ema\_state\_dict} when available; cell 53 implements the same fallback in the post-training sampling block). The "final answer" of the run is therefore the EMA snapshot at the epoch at which $\mathcal S$ was lowest, not the last EMA snapshot.
+saved as \texttt{checkpoints/unet\_cmb\_t\_pure\_cfm\_linear\_heun\_ema\_10.pt}. In the production run documented here the best score $\mathcal S^\star\approx 0.042$ is reached at epoch $n^\star=7500$. The downstream evaluation cell prefers $\bar\thetavec^\star$ over $\bar\thetavec_{\rm last}$ whenever it is present (cell~59 uses the key \texttt{best\_spectral\_ema\_state\_dict} when available; cell~53 implements the same fallback in the post-training sampling block). The ``final answer'' of the run is therefore the EMA snapshot at the epoch at which $\mathcal S$ was lowest, not the last EMA snapshot.
 
 \paragraph{Why the best-along-the-way and not early stopping.}
-The two protocols are operationally similar but conceptually different. Early stopping halts training when $\mathcal S$ stops improving for a patience window and discards everything afterwards; the best-along-the-way protocol used here continues training to the full $20{,}000$-epoch budget and only \emph{retains} the best snapshot. The two coincide when $\mathcal S$ is monotonically non-increasing and diverge whenever it is not. With a generic non-convex loss surface and a finite-batch estimator of $\mathcal S$, the latter is essentially never the case, and continuing to train past a local plateau lets the optimiser explore a different basin while keeping the previous best in cold storage. For our problem this matters: the best-spectral epoch is typically reached well before the AdamW-with-cosine-anneal trajectory has fully relaxed, and the loss landscape continues to evolve. The cost of the extra epochs is small (the bulk of the per-step cost is already spent on the U-Net forward pass) and the upside is non-trivial robustness against late-stage optimisation drift.
+The two protocols are operationally similar but conceptually different. Early stopping halts training when $\mathcal S$ stops improving for a patience window and discards everything afterwards; the best-along-the-way protocol used here continues training to the full $10{,}000$-epoch budget and only \emph{retains} the best snapshot. The two coincide when $\mathcal S$ is monotonically non-increasing and diverge whenever it is not. With a generic non-convex loss surface and a finite-batch estimator of $\mathcal S$, the latter is essentially never the case, and continuing to train past a local plateau lets the optimiser explore a different basin while keeping the previous best in cold storage. For our problem this matters: the best-spectral epoch is typically reached well before the AdamW-with-cosine-anneal trajectory has fully relaxed, and the loss landscape continues to evolve. The cost of the extra epochs is small (the bulk of the per-step cost is already spent on the U-Net forward pass) and the upside is non-trivial robustness against late-stage optimisation drift.
 
 \paragraph{Why $\mathcal S$ rather than the validation $\mathcal L_{\rm CFM}$.}
 The validation $\mathcal L_{\rm CFM}$ is dominated by mid-$t$ contributions where $\langle\|u_t\|^2\rangle$ is largest, and even an optimal model retains the irreducible MMSE there. Two snapshots with identical validation $\mathcal L_{\rm CFM}$ can therefore have visibly different $\hat D_\ell^{TT}$. The spectral score $\mathcal S$ is computed end-to-end through the same solver and same flat-sky bandpower estimator as the post-training $D_\ell^{TT}$ figure, so it is monotonically related to the user-facing deliverable. Selecting on $\mathcal S$ is therefore the cheapest way to ensure that the saved checkpoint matches the reference ensemble in the same metric space in which the result is ultimately reported.
@@ -1176,7 +1156,7 @@ Concretely, at every diagnostic step $n$ where the training-time spectral diagno
   \item \emph{Best-snapshot update.} If $\mathcal S<\mathcal S^\star$, update $\mathcal S^\star\leftarrow\mathcal S$ and snapshot $(\thetavec_n^\star,\bar\thetavec_n^\star,n^\star)$ via \eqref{eq:running_min}.
   \item \emph{EMA hot-restore.} \texttt{restore} the backup so the next optimiser step continues on the live trajectory.
 \end{enumerate}
-At the end of the $20{,}000$-epoch run the saved checkpoint $\mathcal C$ contains both the last-epoch and the best-spectral snapshots, and the downstream sampler defaults to $\bar\thetavec^\star$.
+At the end of the $10{,}000$-epoch run the saved checkpoint $\mathcal C$ contains both the last-epoch and the best-spectral snapshots, and the downstream sampler defaults to $\bar\thetavec^\star$.
 
 \subsection{Sampling: deterministic ODE integration}
 \label{sec:fm_sample_pipeline}
@@ -1408,7 +1388,7 @@ For a Gaussian field, the angular power spectrum is a sufficient statistic and a
 \begin{figure}[h]
   \centering
   \includegraphics[width=0.95\linewidth]{spectral_comparison6.png}
-  \caption{Same as Fig.~\ref{fig:dl_panel_phys} but in normalised patch units, i.e.\ before applying the inverse standardisation of Sec.~\ref{sec:data_savedpriors}. This is the domain in which the network is trained and against which the radial-power regulariser of Eq.~(\ref{eq:radial_loss}) is computed.}
+  \caption{Same as Fig.~\ref{fig:dl_panel_phys} but in normalised patch units, i.e.\ before applying the inverse standardisation of Sec.~\ref{sec:data_savedpriors}. This is the domain in which the network is trained.}
   \label{fig:dl_panel_norm}
 \end{figure}
 
@@ -1416,10 +1396,10 @@ For a Gaussian field, the angular power spectrum is a sufficient statistic and a
 
 Combining the binned spectra of Sec.~\ref{sec:fm_diag_binning}, the variance ratios of Eq.~(\ref{eq:variance_ratios}), and the variance-matched comparison of Eq.~(\ref{eq:vm_bandpower}) provides a sharp decomposition of any failure mode of the trained prior into two limiting cases.
 \begin{itemize}[leftmargin=2.0em,itemsep=0.15em]
-  \item \emph{Amplitude bias} (uniform multiplicative error on $P$). Characterised by $r_{\rm tot}\!\approx\!r_{\rm sm}\!\neq\!1$ and a variance-matched curve $\hat P^{\rm vm}_b$ that closely tracks the reference at all $\ell$. Action items: increase the endpoint-reconstruction weight $\lambda_{x_0}$ of Eq.~(\ref{eq:x0_loss}) and/or the radial Fourier weight $\lambda_{\rm rad}$ of Eq.~(\ref{eq:radial_loss}); train longer.
-  \item \emph{Shape bias} (scale-dependent error on $P$). Characterised by $r_{\rm sm}\!\neq\!r_{\rm tot}$ and by a variance-matched curve $\hat P^{\rm vm}_b$ that fails to track the reference in the same multipole range where $\hat P^{\rm gen}_b$ does. The sign of $r_{\rm sm}-r_{\rm tot}$ localises the failure: $r_{\rm sm}\!<\!r_{\rm tot}$ indicates a deficit at low $\ell$, $r_{\rm sm}\!>\!r_{\rm tot}$ at high $\ell$. Action items: weight the radial Fourier loss in Eq.~(\ref{eq:radial_loss}) by $1/(\ell+\ell_0)$ to redirect gradient mass toward the deficient band, or activate a band-limited $L^2$ penalty on $P$ obtained by taking the kernel of Eq.~(\ref{eq:sigma_sm}) as a smoothed-variance loss.
+  \item \emph{Amplitude bias} (uniform multiplicative error on $P$). Characterised by $r_{\rm tot}\!\approx\!r_{\rm sm}\!\neq\!1$ and a variance-matched curve $\hat P^{\rm vm}_b$ that closely tracks the reference at all $\ell$. Action items: train longer and/or rely on the validation-spectral checkpoint of Sec.~\ref{sec:fm_ema_and_best} to pick a better EMA snapshot.
+  \item \emph{Shape bias} (scale-dependent error on $P$). Characterised by $r_{\rm sm}\!\neq\!r_{\rm tot}$ and by a variance-matched curve $\hat P^{\rm vm}_b$ that fails to track the reference in the same multipole range where $\hat P^{\rm gen}_b$ does. The sign of $r_{\rm sm}-r_{\rm tot}$ localises the failure: $r_{\rm sm}\!<\!r_{\rm tot}$ indicates a deficit at low $\ell$, $r_{\rm sm}\!>\!r_{\rm tot}$ at high $\ell$. Action items: increase model capacity or training budget; revisit the $t$-sampling bias; or add a targeted post-hoc spectral correction rather than reintroducing the auxiliary training losses abandoned in the pure-CFM setup.
 \end{itemize}
-The current state of the trained $p(f)$ prior at the production run reported in Fig.~\ref{fig:dl_panel_phys} is most consistent with a shape bias localised at $\ell\!\lesssim\!200$, with $r_{\rm sm}\!\approx\!0.82$ noticeably smaller than $r_{\rm tot}\!\approx\!0.92$. The variance-matched curve closes most but not all of the residual at low $\ell$, confirming that the dominant failure mode is a redistribution of power at fixed integrated variance and is therefore a pure shape problem rather than a uniform amplitude undershoot. The $\ell$-weighted radial loss and the smoothed-variance pin are therefore the natural follow-up training experiments.
+The current state of the trained $p(f)$ prior at the production run reported in Fig.~\ref{fig:dl_panel_phys} is most consistent with a shape bias localised at $\ell\!\lesssim\!200$, with $r_{\rm sm}\!\approx\!0.82$ noticeably smaller than $r_{\rm tot}\!\approx\!0.92$. The variance-matched curve closes most but not all of the residual at low $\ell$, confirming that the dominant failure mode is a redistribution of power at fixed integrated variance and is therefore a pure shape problem rather than a uniform amplitude undershoot.
 
 
 
@@ -1984,8 +1964,248 @@ snapshot $\bar\thetavec^\star$, which is the checkpoint returned at
 inference time.
 
 
+\section{Foreground prior \texorpdfstring{$p(x)$}{p(x)}: training and post-training diagnostics}
+\label{sec:fg}
 
+So far the formalism of Sec.~\ref{sec:fm} has been instantiated for the CMB
+prior $p(f)$. The same machinery is then trained from scratch on the
+foreground prior $p(x)$ (PySM3 thermal-dust + synchrotron at 143~GHz,
+projected and standardised exactly as for $p(f)$ in
+Sec.~\ref{sec:data_savedpriors}). Concretely, the only changes between the
+two runs are the data sampler (\texttt{prior\_x} instead of
+\texttt{prior\_f}) and the on-disk checkpoint name; the U-Net architecture,
+the linear schedule, the conditional flow-matching loss
+(Eq.~\ref{eq:cfm_linear}), the optimiser, the EMA, and the Heun ODE sampler
+are reused verbatim. Distinct objects \texttt{path\_x},
+\texttt{unet\_x}, \texttt{trainer\_x} are used so that the $p(f)$ run is
+preserved in memory and on disk.
 
+\subsection{Training configuration}
+\label{sec:fg_training_config}
+
+The training cell is \texttt{cell~66}; it instantiates a fresh
+\texttt{FlowMatchingTrainer} and calls \texttt{train()} with
+\texttt{run\_spectral=False}. Foreground patches are dominated by
+non-Gaussian morphology (galactic-plane filaments, log-normal-like
+one-point PDF), so the in-training flat-sky $TT$ score that drives
+best-validation-spectral checkpointing for $p(f)$
+(Sec.~\ref{sec:fm_spectral_score}) is no longer sufficient by itself, and we
+postpone the spectral evaluation to a dedicated post-training step. The
+live diagnostic panel therefore collapses to four sub-plots: training
+loss, validation vector-field MSE (Eq.~\ref{eq:cfm_linear} on a fixed
+validation batch), the $L_{\rm val,x_0}$ posterior-mean reconstruction
+(Eq.~\ref{eq:x0_recon}), and the validation MSE by timestep bin. All
+hyperparameters match the $p(f)$ run of
+Table~\ref{tab:fm_hparams}; in particular the training objective is the
+plain CFM mean-squared error
+\begin{equation}
+  \mathcal L_{\rm CFM}^{(x)}(\thetavec)
+  \;=\;
+  \mathbb E_{t,\,z\sim p(x),\,\varepsilon\sim\mathcal N(0,I)}\!
+  \bigl\|\,
+    u_t^{\thetavec_x}(\xvec_t)
+    -\bigl(\dot\alpha_t z + \dot\beta_t\varepsilon\bigr)
+  \bigr\|^2,
+\end{equation}
+with $\xvec_t=\alpha_t z + \beta_t\varepsilon$ and the linear schedule
+$\alpha_t=1-t,\beta_t=t$. The output checkpoint is
+\texttt{checkpoints/unet\_fg\_t\_pure\_cfm\_linear\_heun\_ema.pt} and
+records, alongside the last-epoch weights and EMA shadow, the
+\texttt{prior:'foreground'} tag in its \texttt{training\_config}.
+
+\subsection{Per-\texorpdfstring{$t$}{t} velocity-field diagnostic}
+\label{sec:fg_pertdiag}
+
+The first post-training diagnostic, in \texttt{cell~68}, is the same
+single-curve check used for $p(f)$: it pits the trained vector field
+against the analytic CFM target on a fine $t$-grid, with the optimal
+linear estimator under matched second-order statistics as a lower bound.
+Two curves are plotted versus $t\in[t_{\min},t_{\max}]$:
+
+\paragraph{Trained MSE.}
+At each $t$ on the grid we draw $N_{\rm batches}$ independent batches
+$\{(\zvec^{(b,m)}, \varepsilon^{(b,m)})\}$ of size $N_{\rm per\,t}$ from the
+held-out validation foreground patches and standard Gaussian noise,
+form $\xvec_t^{(b,m)}=\alpha_t\zvec^{(b,m)}+\beta_t\varepsilon^{(b,m)}$,
+and measure
+\begin{equation}
+  \mathrm{MSE}_{\rm trained}^{(b)}(t)
+  \;=\;
+  \frac{1}{N_{\rm per\,t}\,N_{\rm pix}}
+  \sum_{m=1}^{N_{\rm per\,t}}
+  \Bigl\|
+    \hat u_t^{\thetavec_x}\!\bigl(\xvec_t^{(b,m)}\bigr)
+    -
+    \bigl(\dot\alpha_t\zvec^{(b,m)}+\dot\beta_t\varepsilon^{(b,m)}\bigr)
+  \Bigr\|^2.
+\end{equation}
+The plot shows the mean over batches and a $\pm1\sigma$ band over the
+batch-to-batch spread, providing an explicit Monte-Carlo uncertainty band.
+
+\paragraph{Wiener (Gaussian-prior) MMSE floor.}
+A natural lower bound for $\mathrm{MSE}_{\rm trained}(t)$ is the per-pixel
+MSE achievable by the optimal \emph{linear} estimator of $u_t$ given
+$\xvec_t$ when $\zvec$ is replaced by a Gaussian field with the same
+second-order statistics. Working in the 2D Fourier basis with the
+empirical patch power spectrum $P(\bm k)$,
+\begin{equation}
+  P(\bm k)
+  \;=\;
+  \frac{1}{N_{\rm patches}}\sum_{i=1}^{N_{\rm patches}}
+    \frac{|\widetilde z^{(i)}(\bm k)|^2}{N_{\rm pix}},
+\end{equation}
+the 2D Wiener filter on each independent mode gives a closed-form MMSE
+\begin{equation}
+  \mathrm{MMSE}_{\rm W}(t)
+  \;=\;
+  \frac{1}{N_{\rm pix}}\sum_{\bm k}
+    \frac{(\dot\alpha_t\beta_t-\dot\beta_t\alpha_t)^2\,P(\bm k)}
+         {\alpha_t^2\,P(\bm k)+\beta_t^2}.
+\end{equation}
+The trained curve should track or sit slightly below the Wiener floor:
+gaps below it quantify the gain from exploiting non-Gaussian foreground
+structure that the linear estimator cannot capture, while sitting
+visibly above it at any $t$ is a tell-tale of undertraining at that
+point of the probability path.
+
+\subsection{Post-training summary statistics: power spectrum and Minkowski
+functionals}
+\label{sec:fg_summary_stats}
+
+Because $p(x)$ is heavily non-Gaussian, two-point statistics alone are not
+sufficient to evaluate the generative model. We therefore reproduce the
+two-panel diagnostic of Heurtel-Depeiges \emph{et\,al.}\
+2023~\cite{heurtel2023dust} (their Fig.~C.2): a flat-sky angular power
+spectrum and the three Minkowski functionals of standardised excursion
+sets. Both diagnostics compare $N_{\rm gen}$ unconditionally generated
+patches $\{\hat\xvec^{(i)}\}_{i=1}^{N_{\rm gen}}$, sampled by integrating
+the deterministic ODE driven by $\hat u_t^{\thetavec_x}$ from
+$\xvec_0\sim\mathcal N(0,I)$ on the time grid
+$[t_{\min},t_{\max}]$ with the Heun integrator and applying the
+linear-schedule endpoint reconstruction
+(Eq.~\ref{eq:x0_from_vf_linear}), against $N_{\rm ref}$ held-out
+validation patches $\{\xvec^{(i)}\}_{i=1}^{N_{\rm ref}}$ drawn directly
+from \texttt{prior\_x['val\_norm']}. The implementation is in
+\texttt{cell~70}.
+
+\subsubsection{Flat-sky angular power spectrum}
+\label{sec:fg_dl}
+
+The bandpower estimator is exactly the one defined in
+Sec.~\ref{sec:fm_diag_estimator},
+\begin{equation}
+  \hat C_\ell^{TT,\,\rm patch}
+  \;=\;
+  \frac{1}{N_{\rm modes}(\ell)}\!\!
+  \sum_{|\bm k|\in b_\ell}\!
+    \frac{|\widetilde T(\bm k)|^2\,(\Delta x)^2}{HW},
+  \qquad \ell=2\pi|\bm k|,
+  \label{eq:fg_clest}
+\end{equation}
+implemented by \texttt{flat\_sky\_tt\_spectrum\_binned} (\texttt{cell~52})
+with the log-spaced binning of Eq.~(\ref{eq:log_binning}). A fixed
+isotropic Gaussian smoothing of width $\sigma_{\rm pix}$ is applied to
+both ensembles before the estimator is taken; the corresponding
+pixel-domain kernel is the one of Eq.~(\ref{eq:smooth_kernel}) and the
+helper is \texttt{gaussian\_smooth\_patches\_t}. We report the
+ensemble-mean $D_\ell^{TT}=\ell(\ell+1)C_\ell^{TT}/2\pi$ for both
+ensembles, restricted to multipoles $\ell\le\ell_{\max}=1200$ for plotting
+clarity.
+
+A single scalar shape-and-amplitude mismatch is reported alongside the
+curve as the log-relative bandpower RMS,
+\begin{equation}
+  \mathrm{RMSE}_{\log D}
+  \;=\;
+  \sqrt{\frac{1}{|\mathcal M|}
+        \sum_{b\in\mathcal M}
+        \bigl[\,\log\hat D_b^{\rm gen}-\log\hat D_b^{\rm ref}\,\bigr]^2},
+  \label{eq:fg_dl_logrmse}
+\end{equation}
+with $\mathcal M$ the set of bins where both estimators are finite and
+positive. Because $\log(D^{\rm gen}/D^{\rm ref})\approx
+(D^{\rm gen}-D^{\rm ref})/D^{\rm ref}$ at small mismatch,
+$100\,(\exp(\mathrm{RMSE}_{\log D})-1)\,\%$ is interpretable
+approximately as a per-bin amplitude mismatch in percent.
+
+\subsubsection{Minkowski functionals}
+\label{sec:fg_minkowski}
+
+The Minkowski functionals are the canonical morphological non-Gaussianity
+diagnostic for 2D random fields~\cite{mecke1994minkowski,
+schmalzing1997minkowski}. For each patch $x$, we standardise
+$\tilde x=(x-\langle x\rangle)/\mathrm{std}(x)$ and define, for each
+threshold $\nu\in\mathbb R$, the excursion set
+\begin{equation}
+  A_\nu(x) \;=\; \bigl\{\,\bm p\in\Omega:\, \tilde x(\bm p)\ge\nu\,\bigr\},
+\end{equation}
+where $\Omega$ is the patch domain ($H\times W$ pixels). The three
+functionals are
+\begin{equation}
+  V_0(\nu)\;=\;\frac{|A_\nu|}{|\Omega|},\qquad
+  V_1(\nu)\;=\;\frac{\mathrm{Per}(A_\nu)}{4\,|\Omega|},\qquad
+  V_2(\nu)\;=\;\frac{\chi(A_\nu)}{2\pi\,|\Omega|},
+  \label{eq:mf_def}
+\end{equation}
+with $|A_\nu|$ the area, $\mathrm{Per}$ the perimeter and $\chi$ the
+Euler characteristic of the excursion set; the prefactors are the
+conventional 2D Hadwiger normalisations. We compute each functional
+patch-by-patch and report the mean and $\pm1\sigma$ band over the
+ensemble.
+
+\paragraph{Discrete estimators on a square pixel grid.}
+With pixel side $\Delta x=1$ in patch units and $|\Omega|=N_{\rm pix}=HW$,
+the discrete estimators implemented by \texttt{\_minkowski\_functionals}
+in \texttt{cell~70} are:
+\begin{itemize}[leftmargin=2.0em,itemsep=0.15em]
+  \item Excursion area:
+    $\hat V_0(\nu)=\dfrac{1}{N_{\rm pix}}
+      \sum_{\bm p}\mathbf 1[\tilde x(\bm p)\ge\nu]$,
+    the fraction of pixels above threshold.
+  \item Perimeter:
+    $\hat V_1(\nu)=\dfrac{1}{4\,N_{\rm pix}}\,
+      \#\bigl\{(\bm p,\bm p'):\bm p\sim_4\bm p',\,
+      \mathbf 1[\tilde x(\bm p)\ge\nu]
+      \neq\mathbf 1[\tilde x(\bm p')\ge\nu]\bigr\}$,
+    the count of 4-connectivity edges that cross the level set,
+    normalised by $4|\Omega|$.
+  \item Euler characteristic:
+    $\hat V_2(\nu)=\dfrac{1}{2\pi N_{\rm pix}}
+      \bigl[\,\#\mathrm{components}(A_\nu)
+              - \#\mathrm{holes}(A_\nu)\,\bigr]$,
+    with components extracted by 4-connectivity flood-fill
+    (\texttt{scipy.ndimage.label}) and holes defined as connected
+    components of the complement that do not touch the patch boundary.
+\end{itemize}
+Per-patch standardisation makes these estimators amplitude-independent
+and isolates morphological information: any rescaling
+$x\mapsto\lambda x+c$ with $\lambda>0$ leaves $\tilde x$ invariant, so the
+$V_k$ depend only on the shape of the field. Departures of $V_0,V_1$ from
+symmetry around $\nu=0$ -- and of $V_2$ from a perfect odd function of
+$\nu$ -- are direct signatures of the non-Gaussian morphology of the
+foreground field that the power spectrum (\ref{eq:fg_clest}) cannot
+detect.
+
+\paragraph{Reading the diagnostic.}
+A trained $p(x)$ prior that captures both the second-order spectrum and
+the non-Gaussian morphology should yield (i) $\hat D_\ell^{\rm gen}$
+tracking $\hat D_\ell^{\rm ref}$ with $\mathrm{RMSE}_{\log D}$ small (a
+few tens of percent or below per bin), and (ii) all three Minkowski
+functionals with mean curves and $\pm1\sigma$ bands overlapping the
+reference. Mismatches partition cleanly:
+\begin{itemize}[leftmargin=2.0em,itemsep=0.15em]
+  \item Power spectrum off but Minkowski functionals match: a global
+    amplitude/shape mismatch in second-order statistics. Most often
+    indicates undertraining at high $\ell$ (visible as a deficit at
+    small angular scales).
+  \item Power spectrum matches but Minkowski functionals deviate
+    (especially asymmetry of $V_0,V_1$ around $\nu=0$ or sign of $V_2$ at
+    moderate $\nu$): the model has learned the second-order statistics
+    but is generating closer-to-Gaussian fields than the reference. This
+    is the typical failure mode of pure CFM on highly non-Gaussian
+    foregrounds and motivates more elaborate priors (scattering
+    transforms, conditional models) in subsequent work.
+\end{itemize}
 
 
 \pagebreak
@@ -2088,6 +2308,18 @@ D.~Heurtel-Depeiges, B.~Burkhart, R.~Ohana, and B.~R\'egaldo-Saint Blancard,
 ``Removing Dust from CMB Observations with Diffusion Models,''
 in \emph{Machine Learning and the Physical Sciences Workshop, NeurIPS} (2023),
 \emph{arXiv:2310.16285}.
+
+\bibitem{mecke1994minkowski}
+K.~R.~Mecke, T.~Buchert, and H.~Wagner,
+``Robust morphological measures for large-scale structure of the Universe,''
+\emph{Astronomy \& Astrophysics} \textbf{288} (1994), 697--704,
+\emph{arXiv:astro-ph/9312028}.
+
+\bibitem{schmalzing1997minkowski}
+J.~Schmalzing and T.~Buchert,
+``Beyond Genus Statistics: A Unifying Approach to the Morphology of Cosmic Structure,''
+\emph{The Astrophysical Journal Letters} \textbf{482} (1997), L1--L4,
+\emph{arXiv:astro-ph/9702130}.
 
 \bibitem{reinecke2023ducc}
 M.~Reinecke, S.~Belkner, and J.~Carron,
